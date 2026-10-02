@@ -40,7 +40,6 @@ public class Query
             .ToListAsync();
     }
 
-
     public Task<List<DetallePedido>> GetDetallePedido(int pedidoId, [Service] AppDbContext context)
     {
         return context.DetallePedidos

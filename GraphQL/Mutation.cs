@@ -109,8 +109,8 @@ public class Mutation
 
     var pedido = new Pedido
     {
-        // Solución a la fecha en PostgreSQL
-        Fecha = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified),
+        
+        Fecha = DateTime.UtcNow,
         Status = "Pendiente",
         UsuarioId = input.UsuarioId,
         Total = (float)detalles.Sum(d => (decimal)d.PrecioUnitario * d.Cantidad)

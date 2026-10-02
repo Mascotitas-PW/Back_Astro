@@ -16,7 +16,7 @@ public class AppDbContext : DbContext
         
         modelBuilder.Entity<Pedido>(e =>
         {
-            e.ToTable("pedidos");
+            e.ToTable("Pedido");
             e.Property(p => p.Id).HasColumnName("id");
             e.Property(p => p.Fecha).HasColumnName("fecha");
             e.Property(p => p.Total).HasColumnName("total");
@@ -26,7 +26,7 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<DetallePedido>(e =>
         {
-            e.ToTable("detallepedidos");
+            e.ToTable("DetallePedido");
             e.Property(d => d.Id).HasColumnName("id");
             e.Property(d => d.PedidoId).HasColumnName("pedidoid");
             e.Property(d => d.ProductoId).HasColumnName("productoid");
