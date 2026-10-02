@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using back.GraphQL;
-using HotChocolate; // <-- Asegúrate de incluir este using
+using HotChocolate; 
 var builder = WebApplication.CreateBuilder(args);
 
 // 1. Configurar DbContext con PostgreSQL (Supabase)
