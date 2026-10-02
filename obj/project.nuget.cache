@@ -1,9 +1,10 @@
 {
   "version": 2,
-  "dgSpecHash": "tvFPbqSgMEU=",
+  "dgSpecHash": "ZH8g0gH1lGE=",
   "success": true,
   "projectFilePath": "/home/dante/Documentos/mascotitas_astro/back/back.csproj",
   "expectedPackageFiles": [
+    "/home/dante/.nuget/packages/bcrypt.net-next/4.2.0/bcrypt.net-next.4.2.0.nupkg.sha512",
     "/home/dante/.nuget/packages/chillicream.nitro.app/32.0.2/chillicream.nitro.app.32.0.2.nupkg.sha512",
     "/home/dante/.nuget/packages/greendonut/16.6.6/greendonut.16.6.6.nupkg.sha512",
     "/home/dante/.nuget/packages/greendonut.abstractions/16.6.6/greendonut.abstractions.16.6.6.nupkg.sha512",

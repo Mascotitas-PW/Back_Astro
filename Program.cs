@@ -24,6 +24,7 @@ builder.Services
     .AddSorting()
     .ModifyRequestOptions(opt => opt.IncludeExceptionDetails = true);
 
+
 var app = builder.Build();
 
 //Middleware

@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using back.Models; 
-using back.GraphQL; 
 using HotChocolate; 
+using back;
+using BCrypt.Net;
 
+namespace back.GraphQL;
 
 [GraphQLName("ItemPedidoInput")]
 public record ItemPedidoInput(int ProductoId, int Cantidad);
@@ -60,62 +62,72 @@ public class Mutation
 }
 
     public async Task<Pedido> CrearPedido(CrearPedidoInput input, [Service] AppDbContext context)
+{
+    if (input.Items == null || input.Items.Count == 0)
+        throw new GraphQLException("El pedido no tiene productos.");
+
+    if (input.Items.Any(i => i.Cantidad <= 0))
+        throw new GraphQLException("Todas las cantidades deben ser mayores a 0.");
+
+    // Validar usuario
+    var usuarioExiste = await context.Usuarios.AnyAsync(u => u.Id == input.UsuarioId);
+    if (!usuarioExiste)
+        throw new GraphQLException($"El usuario con ID {input.UsuarioId} no existe.");
+
+    // Agrupar items repetidos
+    var items = input.Items
+        .GroupBy(i => i.ProductoId)
+        .Select(g => new ItemPedidoInput(g.Key, g.Sum(x => x.Cantidad)))
+        .ToList();
+
+    var ids = items.Select(i => i.ProductoId).ToList();
+    var productos = await context.Productos
+        .Where(p => ids.Contains(p.Id))
+        .ToDictionaryAsync(p => p.Id);
+
+    var detalles = new List<DetallePedido>();
+    
+    foreach (var item in items)
     {
-        if (input.Items == null || input.Items.Count == 0)
-            throw new GraphQLException("El pedido no tiene productos.");
+        if (!productos.TryGetValue(item.ProductoId, out var producto))
+            throw new GraphQLException($"El producto {item.ProductoId} no existe.");
 
-        if (input.Items.Any(i => i.Cantidad <= 0))
-            throw new GraphQLException("Todas las cantidades deben ser mayores a 0.");
+        if (producto.Stock < item.Cantidad)
+            throw new GraphQLException($"Stock insuficiente para '{producto.Nombre}' (disponible: {producto.Stock}).");
 
-        if (!await context.Usuarios.AnyAsync(u => u.Id == input.UsuarioId))
-            throw new GraphQLException("El usuario no existe.");
+        producto.Stock -= item.Cantidad;
 
-        var items = input.Items
-            .GroupBy(i => i.ProductoId)
-            .Select(g => new ItemPedidoInput(g.Key, g.Sum(x => x.Cantidad)))
-            .ToList();
-
-        var ids = items.Select(i => i.ProductoId).ToList();
-        var productos = await context.Productos
-            .Where(p => ids.Contains(p.Id))
-            .ToDictionaryAsync(p => p.Id);
-
-        var detalles = new List<DetallePedido>();
-        foreach (var item in items)
+        detalles.Add(new DetallePedido
         {
-            if (!productos.TryGetValue(item.ProductoId, out var producto))
-                throw new GraphQLException($"El producto {item.ProductoId} no existe.");
-
-            if (producto.Stock < item.Cantidad)
-                throw new GraphQLException($"Stock insuficiente para '{producto.Nombre}' (disponible: {producto.Stock}).");
-
-            producto.Stock -= item.Cantidad;
-            detalles.Add(new DetallePedido
-            {
-                ProductoId = producto.Id,
-                Cantidad = item.Cantidad,
-                PrecioUnitario = (float)producto.Precio
-            });
-        }
-
-        await using var tx = await context.Database.BeginTransactionAsync();
-
-        var pedido = new Pedido
-        {
-            Fecha = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified), // columna timestamp sin zona
-            Status = "Pendiente",
-            UsuarioId = input.UsuarioId,
-            Total = detalles.Sum(d => d.PrecioUnitario * d.Cantidad)
-        };
-
-        context.Pedidos.Add(pedido);
-        await context.SaveChangesAsync(); // genera pedido.Id
-
-        foreach (var d in detalles) d.PedidoId = pedido.Id;
-        context.DetallePedidos.AddRange(detalles);
-        await context.SaveChangesAsync();
-
-        await tx.CommitAsync();
-        return pedido;
+            ProductoId = producto.Id,
+            Cantidad = item.Cantidad,
+            PrecioUnitario = (float)producto.Precio
+        });
     }
+
+    await using var tx = await context.Database.BeginTransactionAsync();
+
+    var pedido = new Pedido
+    {
+        // Solución a la fecha en PostgreSQL
+        Fecha = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified),
+        Status = "Pendiente",
+        UsuarioId = input.UsuarioId,
+        Total = (float)detalles.Sum(d => (decimal)d.PrecioUnitario * d.Cantidad)
+    };
+
+    context.Pedidos.Add(pedido);
+    await context.SaveChangesAsync();
+
+    foreach (var d in detalles)
+    {
+        d.PedidoId = pedido.Id;
+    }
+
+    context.DetallePedidos.AddRange(detalles);
+    await context.SaveChangesAsync();
+
+    await tx.CommitAsync();
+    return pedido;
+}
 }
