@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using HotChocolate;
+using back.Models;
 
 public class Query
 {
@@ -17,29 +19,33 @@ public class Query
             });
     }
 
-    public IQueryable<User> GetUsers(
-        [Service] AppDbContext context)
+    public IQueryable<User> GetUsers([Service] AppDbContext context)
     {
         return context.Usuarios;
     }
 
-}
+    public Task<Pedido?> GetPedidoPorId(int id, [Service] AppDbContext context)
+    {
+        return context.Pedidos
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == id);
+    }
 
-public class ProductoDto
-{
-    public int Id { get; set; }
-    public string Nombre { get; set; } = string.Empty;
-    public decimal Precio { get; set; }
-    public string Imagen { get; set; } = string.Empty;
-    public int Stock { get; set; }
-    public string Categoria { get; set; } = string.Empty;
-}
+    public Task<List<Pedido>> GetPedidosPorUsuario(int usuarioId, [Service] AppDbContext context)
+    {
+        return context.Pedidos
+            .AsNoTracking()
+            .Where(p => p.UsuarioId == usuarioId)
+            .OrderByDescending(p => p.Fecha)
+            .ToListAsync();
+    }
 
-public class User
-{
-    public int Id { get; set; }
-    public string Nombre { get; set; } = string.Empty;
-    public string email { get; set; } = string.Empty;
-    public string Password { get; set; } = string.Empty;
-    public string Rol { get; set; } = string.Empty; // <-- Agrega esta línea
+
+    public Task<List<DetallePedido>> GetDetallePedido(int pedidoId, [Service] AppDbContext context)
+    {
+        return context.DetallePedidos
+            .AsNoTracking()
+            .Where(d => d.PedidoId == pedidoId)
+            .ToListAsync();
+    }
 }
