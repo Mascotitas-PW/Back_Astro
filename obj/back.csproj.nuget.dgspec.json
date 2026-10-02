@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "/home/dante/Descargas/septiembre/mi-tienda-mascotas/back/back.csproj": {}
+    "/home/dante/Documentos/mascotitas_astro/back/back.csproj": {}
   },
   "projects": {
-    "/home/dante/Descargas/septiembre/mi-tienda-mascotas/back/back.csproj": {
+    "/home/dante/Documentos/mascotitas_astro/back/back.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/home/dante/Descargas/septiembre/mi-tienda-mascotas/back/back.csproj",
+        "projectUniqueName": "/home/dante/Documentos/mascotitas_astro/back/back.csproj",
         "projectName": "back",
-        "projectPath": "/home/dante/Descargas/septiembre/mi-tienda-mascotas/back/back.csproj",
+        "projectPath": "/home/dante/Documentos/mascotitas_astro/back/back.csproj",
         "packagesPath": "/home/dante/.nuget/packages/",
-        "outputPath": "/home/dante/Descargas/septiembre/mi-tienda-mascotas/back/obj/",
+        "outputPath": "/home/dante/Documentos/mascotitas_astro/back/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "/home/dante/.nuget/NuGet/NuGet.Config"
@@ -52,9 +52,19 @@
               "target": "Package",
               "version": "[16.6.6, )"
             },
+            "Microsoft.EntityFrameworkCore.Design": {
+              "include": "Runtime, Build, Native, ContentFiles, Analyzers, BuildTransitive",
+              "suppressParent": "All",
+              "target": "Package",
+              "version": "[10.0.12, )"
+            },
             "Microsoft.EntityFrameworkCore.Sqlite": {
               "target": "Package",
               "version": "[10.0.12, )"
+            },
+            "Npgsql.EntityFrameworkCore.PostgreSQL": {
+              "target": "Package",
+              "version": "[10.0.3, )"
             }
           },
           "imports": [

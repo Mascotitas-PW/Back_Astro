@@ -1,42 +1,42 @@
 using Microsoft.EntityFrameworkCore;
-
+using back.GraphQL;
+using HotChocolate; // <-- Asegúrate de incluir este using
 var builder = WebApplication.CreateBuilder(args);
 
-// Configurar SQLite con la cadena de conexión
+// 1. Configurar DbContext con PostgreSQL (Supabase)
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// Configurar CORS
+// 2. Configurar CORS
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReact", policy =>
-        policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod());
+        policy.AllowAnyOrigin()
+              .AllowAnyHeader()
+              .AllowAnyMethod());
 });
 
-// Configurar servidor GraphQL
+// 3. Configurar servidor GraphQL
 builder.Services
     .AddGraphQLServer()
     .AddQueryType<Query>()
+    .AddMutationType<Mutation>()
     .AddFiltering()
-    .AddSorting();
+    .AddSorting()
+    .ModifyRequestOptions(opt => opt.IncludeExceptionDetails = true);
 
 var app = builder.Build();
 
-// Creación automática de la base de datos si no existe
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.EnsureCreated();
-}
-
+// 4. Middlewares de la aplicación
 app.UseCors("AllowReact");
 app.MapGraphQL("/graphql");
 
 app.Run();
 
-// =========================================================
+// ==========================================
 // ENTIDADES Y DB CONTEXT
-// =========================================================
+// ==========================================
+
 public class Categoria
 {
     public int Id { get; set; }
@@ -58,6 +58,7 @@ public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
+    public DbSet<User> Usuarios => Set<User>();
     public DbSet<Categoria> Categorias => Set<Categoria>();
     public DbSet<Producto> Productos => Set<Producto>();
 
@@ -74,7 +75,7 @@ public class AppDbContext : DbContext
             new Producto { Id = 2, Nombre = "Sobre Gourmet Gato", Precio = 25.50m, Imagen = "sobre.png", Stock = 50, CategoriaId = 1 },
             new Producto { Id = 3, Nombre = "Pelota de Goma Chillona", Precio = 80.00m, Imagen = "pelota.png", Stock = 15, CategoriaId = 2 },
             new Producto { Id = 4, Nombre = "Ratón con Plumas", Precio = 45.00m, Imagen = "raton.png", Stock = 30, CategoriaId = 2 },
-            new Producto { Id = 5, Nombre = "Collar Antipulgas", Precio = 120.00m, Imagen = "correa.png", Stock = 10, CategoriaId = 3 },
+            new Producto { Id = 5, Nombre = "Collar Antipulgas", Precio = 120.00m, Imagen = "collar.png", Stock = 10, CategoriaId = 3 },
             new Producto { Id = 6, Nombre = "Cama Acolchonada Grande", Precio = 450.00m, Imagen = "cama.png", Stock = 5, CategoriaId = 3 }
         );
     }
