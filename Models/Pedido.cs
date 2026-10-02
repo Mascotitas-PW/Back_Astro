@@ -1,4 +1,5 @@
 namespace back.Models
+{
 Public class Pedido
 {
     public int Id { get; set; }
@@ -6,4 +7,5 @@ Public class Pedido
     public float Total { get; set; }
     public string Status { get; set; } = "Pendiente";
     public int UsuarioId { get; set; }
+}
 }
