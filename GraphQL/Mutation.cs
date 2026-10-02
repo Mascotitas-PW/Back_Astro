@@ -37,31 +37,33 @@ public class Mutation
             );
         }
 
-        var nuevoUsuario = new User
-        {
-            Nombre = nombre.Trim(),
-            email = emailLimpio,
-            Password = password,
-            Rol = "Cliente"
-        };
+      string passwordHash = BCrypt.Net.BCrypt.HashPassword(password);
 
+    var nuevoUsuario = new User
+    {
+        Nombre = nombre.Trim(),
+        email = emailLimpio,
+        Password = passwordHash, 
+        Rol = "Cliente"
+    };
         context.Usuarios.Add(nuevoUsuario);
         await context.SaveChangesAsync();
 
         return "Usuario registrado con éxito";
     }
 
-    public async Task<User?> Login(
-        string email,
-        string password,
-        [Service] AppDbContext context)
+    public async Task<User> Login(string email, string password, [Service] AppDbContext context)
+{
+
+    var usuario = await context.Usuarios.FirstOrDefaultAsync(u => u.email == email);
+
+    if (usuario != null && BCrypt.Net.BCrypt.Verify(password, usuario.Password))
     {
-        return await context.Usuarios
-            .FirstOrDefaultAsync(u =>
-                u.email == email &&
-                u.Password == password
-            );
+        return usuario;
     }
+
+    throw new GraphQLException("Usuario o contraseña incorrectos.");
+}
 
     public async Task<Pedido> CrearPedido(CrearPedidoInput input, [Service] AppDbContext context)
     {
