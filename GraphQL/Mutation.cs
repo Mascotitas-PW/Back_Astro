@@ -2,12 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using back.Models; 
 using back.GraphQL; 
 using HotChocolate; 
-using back.Models;
-
-namespace back.GraphQL;
-using Microsoft.EntityFrameworkCore;
-using HotChocolate;
-using back.Models;
 
 
 [GraphQLName("ItemPedidoInput")]

@@ -1,4 +1,5 @@
-ublic class Pedido
+namespace back.Models
+Public class Pedido
 {
     public int Id { get; set; }
     public DateTime Fecha { get; set; }

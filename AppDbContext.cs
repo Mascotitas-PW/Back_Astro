@@ -13,7 +13,7 @@ public class AppDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        // Tablas y columnas en minúsculas, igual que en la BDD
+        
         modelBuilder.Entity<Pedido>(e =>
         {
             e.ToTable("pedidos");
