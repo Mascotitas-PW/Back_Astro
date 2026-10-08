@@ -1,12 +1,35 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 using back.GraphQL;
 using HotChocolate;
 
 var builder = WebApplication.CreateBuilder(args);
+var jwtSettings = JwtTokenSettings.Load(builder.Configuration);
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton(new JwtTokenService(jwtSettings));
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(jwtSettings.SigningKey),
+            ValidateIssuer = true,
+            ValidIssuer = jwtSettings.Issuer,
+            ValidateAudience = true,
+            ValidAudience = jwtSettings.Audience,
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromSeconds(30),
+            NameClaimType = System.Security.Claims.ClaimTypes.NameIdentifier,
+            RoleClaimType = System.Security.Claims.ClaimTypes.Role
+        };
+    });
+builder.Services.AddAuthorization();
 builder.Services.AddHttpClient<MercadoPagoPaymentService>(client =>
     client.Timeout = TimeSpan.FromSeconds(30));
 builder.Services.AddHttpClient<PayPalPaymentService>(client =>
@@ -37,6 +60,8 @@ var app = builder.Build();
 
 //Middleware
 app.UseCors("AllowReact");
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapGraphQL("/graphql");
 app.MapPayPalCheckout();
 app.MapPost("/process_order", async (
