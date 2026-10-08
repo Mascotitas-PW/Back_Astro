@@ -1,0 +1,8 @@
+# .NET build output folders
+**/bin/
+**/obj/
+
+# User-specific / IDE files
+.vs/
+.idea/
+*.user

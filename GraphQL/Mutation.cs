@@ -19,8 +19,8 @@ public class Mutation
     string nombre,
     string email,
     string password,
-     [Service] AppDbContext context,
-    string? rol = "Cliente")
+    string? rol,
+    [Service] AppDbContext context)
 
 {
     var emailLimpio = email.Trim().ToLower();
