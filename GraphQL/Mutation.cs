@@ -36,10 +36,10 @@ public class Mutation
         );
     }
 
-    // Validar el rol enviado (para evitar asignaciones no válidas)
+
     var rolFinal = string.IsNullOrWhiteSpace(rol) ? "Cliente" : rol.Trim();
     
-    // Lista de roles permitidos en tu sistema
+
     var rolesPermitidos = new[] { "Admin", "Cliente" };
     if (!rolesPermitidos.Contains(rolFinal))
     {
@@ -53,7 +53,7 @@ public class Mutation
         Nombre = nombre.Trim(),
         email = emailLimpio,
         Password = passwordHash, 
-        Rol = rolFinal // Usa el rol asignado o el valor por defecto
+        Rol = rolFinal 
     };
 
     context.Usuarios.Add(nuevoUsuario);
