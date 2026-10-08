@@ -10,9 +10,29 @@ public class AppDbContext : DbContext
     public DbSet<Producto> Productos => Set<Producto>();
     public DbSet<Pedido> Pedidos => Set<Pedido>();
     public DbSet<DetallePedido> DetallePedidos => Set<DetallePedido>();
+    public DbSet<PayPalCheckout> PayPalCheckouts => Set<PayPalCheckout>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<PayPalCheckout>(entity =>
+        {
+            entity.ToTable("PayPalCheckouts");
+            entity.HasKey(checkout => checkout.OrderId);
+            entity.Property(checkout => checkout.OrderId).HasColumnName("orderid");
+            entity.Property(checkout => checkout.ReferenceId).HasColumnName("referenceid");
+            entity.Property(checkout => checkout.UsuarioId).HasColumnName("usuarioid");
+            entity.Property(checkout => checkout.ItemsJson).HasColumnName("itemsjson");
+            entity.Property(checkout => checkout.MerchandiseAmount).HasColumnName("merchandiseamount").HasPrecision(12, 2);
+            entity.Property(checkout => checkout.ShippingAmount).HasColumnName("shippingamount").HasPrecision(12, 2);
+            entity.Property(checkout => checkout.TotalAmount).HasColumnName("totalamount").HasPrecision(12, 2);
+            entity.Property(checkout => checkout.Currency).HasColumnName("currency");
+            entity.Property(checkout => checkout.Status).HasColumnName("status");
+            entity.Property(checkout => checkout.CaptureId).HasColumnName("captureid");
+            entity.Property(checkout => checkout.PedidoId).HasColumnName("pedidoid");
+            entity.Property(checkout => checkout.CreatedAt).HasColumnName("createdat");
+            entity.HasIndex(checkout => checkout.UsuarioId);
+        });
+
         
         modelBuilder.Entity<Pedido>(e =>
         {

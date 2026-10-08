@@ -10,7 +10,11 @@ namespace back.GraphQL;
 public record ItemPedidoInput(int ProductoId, int Cantidad);
 
 [GraphQLName("CrearPedidoInput")]
-public record CrearPedidoInput(int UsuarioId, List<ItemPedidoInput> Items, long PaymentId);
+public record CrearPedidoInput(
+    int UsuarioId,
+    List<ItemPedidoInput> Items,
+    long? PaymentId = null,
+    string? PayPalOrderId = null);
 
 public class Mutation
 
@@ -78,7 +82,9 @@ public class Mutation
     public async Task<Pedido> CrearPedido(
         CrearPedidoInput input,
         [Service] AppDbContext context,
-        [Service] MercadoPagoPaymentService payments)
+        [Service] MercadoPagoPaymentService payments,
+        [Service] PayPalPaymentService paypalPayments,
+        [Service] IHttpContextAccessor httpContextAccessor)
 {
     if (input.Items == null || input.Items.Count == 0)
         throw new GraphQLException("El pedido no tiene productos.");
@@ -97,6 +103,32 @@ public class Mutation
         .Select(g => new ItemPedidoInput(g.Key, g.Sum(x => x.Cantidad)))
         .ToList();
 
+    PayPalCheckout? paypalCheckout = null;
+    Dictionary<int, PayPalCheckoutItem>? paypalItems = null;
+    if (!string.IsNullOrWhiteSpace(input.PayPalOrderId))
+    {
+        if (!PayPalCheckoutEndpoints.TryGetAuthenticatedUserId(httpContextAccessor.HttpContext?.User ?? new System.Security.Claims.ClaimsPrincipal(), out var authenticatedUserId) ||
+            authenticatedUserId != input.UsuarioId)
+        {
+            throw new GraphQLException("Se requiere autenticación del usuario propietario del checkout PayPal.");
+        }
+        paypalCheckout = await paypalPayments.GetCapturedCheckoutAsync(input.PayPalOrderId, input.UsuarioId);
+        if (paypalCheckout is null)
+            throw new GraphQLException("El checkout PayPal no está capturado o no corresponde al usuario.");
+
+        var capturedItems = System.Text.Json.JsonSerializer.Deserialize<List<PayPalCheckoutItem>>(paypalCheckout.ItemsJson) ?? [];
+        paypalItems = capturedItems.ToDictionary(item => item.ProductoId);
+        if (items.Count != paypalItems.Count ||
+            items.Any(item => !paypalItems.TryGetValue(item.ProductoId, out var captured) || captured.Cantidad != item.Cantidad))
+        {
+            throw new GraphQLException("Los productos del pedido no coinciden con el checkout PayPal.");
+        }
+    }
+    else if (input.PaymentId is null or <= 0)
+    {
+        throw new GraphQLException("Se requiere un pago de Mercado Pago o un paypalOrderId capturado.");
+    }
+
     var ids = items.Select(i => i.ProductoId).ToList();
     var productos = await context.Productos
         .Where(p => ids.Contains(p.Id))
@@ -114,21 +146,27 @@ public class Mutation
             throw new GraphQLException($"Stock insuficiente para '{producto.Nombre}' (disponible: {producto.Stock}).");
 
         producto.Stock -= item.Cantidad;
-        total += producto.Precio * item.Cantidad;
+        var precioUnitario = paypalItems is not null
+            ? paypalItems[item.ProductoId].PrecioUnitario
+            : producto.Precio;
+        total += precioUnitario * item.Cantidad;
 
         detalles.Add(new DetallePedido
         {
             ProductoId = producto.Id,
             Cantidad = item.Cantidad,
-            PrecioUnitario = (float)producto.Precio
+            PrecioUnitario = (float)precioUnitario
         });
     }
 
-    var pagoValido = await payments.IsApprovedForOrderAsync(
-        input.PaymentId,
-        input.UsuarioId,
-        items.ToDictionary(item => item.ProductoId, item => item.Cantidad),
-        total);
+    var pagoValido = paypalCheckout is not null
+        ? paypalCheckout.MerchandiseAmount == decimal.Round(total, 2, MidpointRounding.AwayFromZero) &&
+          paypalCheckout.TotalAmount == paypalCheckout.MerchandiseAmount + paypalCheckout.ShippingAmount
+        : await payments.IsApprovedForOrderAsync(
+            input.PaymentId!.Value,
+            input.UsuarioId,
+            items.ToDictionary(item => item.ProductoId, item => item.Cantidad),
+            total);
     if (!pagoValido)
         throw new GraphQLException("El pago no está aprobado o no corresponde al importe del pedido.");
 
@@ -140,7 +178,7 @@ public class Mutation
         Fecha = DateTime.UtcNow,
         Status = "Pendiente",
         UsuarioId = input.UsuarioId,
-        Total = (float)total
+        Total = (float)(paypalCheckout?.TotalAmount ?? total)
     };
 
     context.Pedidos.Add(pedido);
@@ -153,6 +191,12 @@ public class Mutation
 
     context.DetallePedidos.AddRange(detalles);
     await context.SaveChangesAsync();
+
+    if (paypalCheckout is not null)
+    {
+        paypalCheckout.PedidoId = pedido.Id;
+        await context.SaveChangesAsync();
+    }
 
     await tx.CommitAsync();
     return pedido;

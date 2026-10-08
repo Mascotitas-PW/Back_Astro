@@ -20,6 +20,70 @@ namespace back.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("PayPalCheckout", b =>
+                {
+                    b.Property<string>("OrderId")
+                        .HasColumnType("text")
+                        .HasColumnName("orderid");
+
+                    b.Property<string>("CaptureId")
+                        .HasColumnType("text")
+                        .HasColumnName("captureid");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("currency");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("createdat");
+
+                    b.Property<string>("ItemsJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("itemsjson");
+
+                    b.Property<decimal>("MerchandiseAmount")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("merchandiseamount");
+
+                    b.Property<int?>("PedidoId")
+                        .HasColumnType("integer")
+                        .HasColumnName("pedidoid");
+
+                    b.Property<string>("ReferenceId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("referenceid");
+
+                    b.Property<decimal>("ShippingAmount")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("shippingamount");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<decimal>("TotalAmount")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("totalamount");
+
+                    b.Property<int>("UsuarioId")
+                        .HasColumnType("integer")
+                        .HasColumnName("usuarioid");
+
+                    b.HasKey("OrderId");
+
+                    b.HasIndex("UsuarioId");
+
+                    b.ToTable("PayPalCheckouts");
+                });
+
             modelBuilder.Entity("Categoria", b =>
                 {
                     b.Property<int>("Id")

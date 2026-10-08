@@ -6,13 +6,19 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient<MercadoPagoPaymentService>(client =>
     client.Timeout = TimeSpan.FromSeconds(30));
+builder.Services.AddHttpClient<PayPalPaymentService>(client =>
+    client.Timeout = TimeSpan.FromSeconds(30));
 
+var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ??
+                  (builder.Configuration["CORS_ALLOWED_ORIGINS"] ?? string.Empty)
+                  .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReact", policy =>
-        policy.AllowAnyOrigin()
+        policy.WithOrigins(corsOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod());
 });
@@ -32,6 +38,7 @@ var app = builder.Build();
 //Middleware
 app.UseCors("AllowReact");
 app.MapGraphQL("/graphql");
+app.MapPayPalCheckout();
 app.MapPost("/process_order", async (
     ProcessOrderRequest request,
     MercadoPagoPaymentService payments,
@@ -56,3 +63,5 @@ app.MapPost("/process_order", async (
 });
 
 app.Run();
+
+public partial class Program;

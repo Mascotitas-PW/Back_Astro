@@ -8,6 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Tests/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
     <PackageReference Include="HotChocolate.AspNetCore" Version="16.6.6" />
     <PackageReference Include="HotChocolate.Data.EntityFramework" Version="16.6.6" />
