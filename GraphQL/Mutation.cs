@@ -62,15 +62,13 @@ public class Mutation
     return "Usuario registrado con éxito";
 }
 
-    public async Task<User> Login(string email, string password, [Service] AppDbContext context)
+  public async Task<User> Login(string email, string password, [Service] AppDbContext context)
 {
-
-    var usuario = await context.Usuarios.FirstOrDefaultAsync(u => u.email == email);
+    var emailLimpio = email.Trim().ToLower();
+    var usuario = await context.Usuarios.FirstOrDefaultAsync(u => u.email.ToLower() == emailLimpio);
 
     if (usuario != null && BCrypt.Net.BCrypt.Verify(password, usuario.Password))
-    {
         return usuario;
-    }
 
     throw new GraphQLException("Usuario o contraseña incorrectos.");
 }
