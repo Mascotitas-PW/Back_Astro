@@ -12,6 +12,9 @@ public record ItemPedidoInput(int ProductoId, int Cantidad);
 [GraphQLName("CrearPedidoInput")]
 public record CrearPedidoInput(int UsuarioId, List<ItemPedidoInput> Items, long PaymentId);
 
+[GraphQLName("CrearPedidoSinPagoInput")]
+public record CrearPedidoSinPagoInput(int UsuarioId, List<ItemPedidoInput> Items, string MetodoPago);
+
 public class Mutation
 
 {
@@ -148,6 +151,83 @@ public class Mutation
     {
         d.PedidoId = pedido.Id;
     }
+
+    context.DetallePedidos.AddRange(detalles);
+    await context.SaveChangesAsync();
+
+    await tx.CommitAsync();
+    return pedido;
+}
+
+    public async Task<Pedido> CrearPedidoSinPago(
+        CrearPedidoSinPagoInput input,
+        [Service] AppDbContext context)
+{
+    var metodosPermitidos = new[] { "Efectivo", "Transferencia" };
+    if (!metodosPermitidos.Contains(input.MetodoPago))
+        throw new GraphQLException("Método de pago no válido para este tipo de pedido.");
+
+    if (input.Items == null || input.Items.Count == 0)
+        throw new GraphQLException("El pedido no tiene productos.");
+
+    if (input.Items.Any(i => i.Cantidad <= 0))
+        throw new GraphQLException("Todas las cantidades deben ser mayores a 0.");
+
+    var usuarioExiste = await context.Usuarios.AnyAsync(u => u.Id == input.UsuarioId);
+    if (!usuarioExiste)
+        throw new GraphQLException($"El usuario con ID {input.UsuarioId} no existe.");
+
+    var items = input.Items
+        .GroupBy(i => i.ProductoId)
+        .Select(g => new ItemPedidoInput(g.Key, g.Sum(x => x.Cantidad)))
+        .ToList();
+
+    var ids = items.Select(i => i.ProductoId).ToList();
+    var productos = await context.Productos
+        .Where(p => ids.Contains(p.Id))
+        .ToDictionaryAsync(p => p.Id);
+
+    await using var tx = await context.Database.BeginTransactionAsync();
+
+    var detalles = new List<DetallePedido>();
+    decimal subtotal = 0;
+
+    foreach (var item in items)
+    {
+        if (!productos.TryGetValue(item.ProductoId, out var producto))
+            throw new GraphQLException($"El producto {item.ProductoId} no existe.");
+
+        if (producto.Stock < item.Cantidad)
+            throw new GraphQLException($"Stock insuficiente para '{producto.Nombre}' (disponible: {producto.Stock}).");
+
+        producto.Stock -= item.Cantidad;
+        subtotal += producto.Precio * item.Cantidad;
+
+        detalles.Add(new DetallePedido
+        {
+            ProductoId = producto.Id,
+            Cantidad = item.Cantidad,
+            PrecioUnitario = (float)producto.Precio
+        });
+    }
+
+    // Misma regla de envío que el front: gratis arriba de $500
+    var envio = subtotal > 500 ? 0m : 99m;
+    var total = subtotal + envio;
+
+    var pedido = new Pedido
+    {
+        Fecha = DateTime.UtcNow,
+        Status = $"Pendiente de pago ({input.MetodoPago})",
+        UsuarioId = input.UsuarioId,
+        Total = (float)total
+    };
+
+    context.Pedidos.Add(pedido);
+    await context.SaveChangesAsync();
+
+    foreach (var d in detalles)
+        d.PedidoId = pedido.Id;
 
     context.DetallePedidos.AddRange(detalles);
     await context.SaveChangesAsync();
