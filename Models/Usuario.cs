@@ -1,3 +1,4 @@
+using HotChocolate;
 namespace back.Models;
 
 public class User
