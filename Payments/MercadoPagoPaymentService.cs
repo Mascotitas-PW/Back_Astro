@@ -55,6 +55,25 @@ public sealed class MercadoPagoPaymentService(
 
         amount = decimal.Round(amount, 2, MidpointRounding.AwayFromZero);
         var currency = configuration["MERCADOPAGO_CURRENCY"] ?? "MXN";
+
+        // 1. Construcción del Payer
+        var payerData = new Dictionary<string, object?>
+        {
+            ["email"] = usuario.email
+        };
+
+        if (request.Payer?.Identification is { } identification &&
+            !string.IsNullOrWhiteSpace(identification.Type) &&
+            !string.IsNullOrWhiteSpace(identification.Number))
+        {
+            payerData["identification"] = new
+            {
+                type = identification.Type,
+                number = identification.Number
+            };
+        }
+
+        // 2. Construcción del cuerpo principal del pago
         var payment = new Dictionary<string, object?>
         {
             ["transaction_amount"] = amount,
@@ -62,15 +81,7 @@ public sealed class MercadoPagoPaymentService(
             ["description"] = $"Pedido de usuario {usuario.Id}",
             ["installments"] = request.Installments,
             ["payment_method_id"] = request.PaymentMethodId,
-            ["payer"] = new
-            {
-                email = usuario.email,
-                identification = request.Payer?.Identification is not { } identification ? null : new
-                {
-                    type = identification.Type,
-                    number = identification.Number
-                }
-            },
+            ["payer"] = payerData,
             ["external_reference"] = $"checkout-{usuario.Id}-{Guid.NewGuid():N}",
             ["metadata"] = new
             {
@@ -82,8 +93,15 @@ public sealed class MercadoPagoPaymentService(
                 })
             }
         };
-        if (request.IssuerId is { } issuerId && issuerId.ValueKind != JsonValueKind.Null)
-            payment["issuer_id"] = issuerId;
+
+        // 3. Extracción limpia de issuer_id
+        if (request.IssuerId is { } issuerElement && issuerElement.ValueKind != JsonValueKind.Null)
+        {
+            if (issuerElement.ValueKind == JsonValueKind.Number && issuerElement.TryGetInt64(out var issuerLong))
+                payment["issuer_id"] = issuerLong;
+            else if (issuerElement.ValueKind == JsonValueKind.String)
+                payment["issuer_id"] = issuerElement.GetString();
+        }
 
         using var message = new HttpRequestMessage(HttpMethod.Post, "https://api.mercadopago.com/v1/payments")
         {
@@ -95,12 +113,16 @@ public sealed class MercadoPagoPaymentService(
         using var response = await httpClient.SendAsync(message);
         if (!response.IsSuccessStatusCode)
         {
+            var rawJson = await response.Content.ReadAsStringAsync();
             var error = await ReadApiErrorAsync(response);
+
             logger.LogWarning(
-                "Mercado Pago rechazó el pago. HTTP {StatusCode}; código {ErrorCode}; detalle {ErrorMessage}",
+                "Mercado Pago rechazó el pago. HTTP {StatusCode}; código {ErrorCode}; detalle {ErrorMessage}. Respuesta API: {RawJson}",
                 (int)response.StatusCode,
                 error.Code,
-                error.Message);
+                error.Message,
+                rawJson);
+
             return new PaymentResult(
                 "rejected",
                 null,
@@ -145,7 +167,11 @@ public sealed class MercadoPagoPaymentService(
 
         using var response = await httpClient.SendAsync(message);
         if (!response.IsSuccessStatusCode)
+        {
+            var rawJson = await response.Content.ReadAsStringAsync();
+            logger.LogWarning("Falló la verificación del pago {PaymentId}. HTTP {StatusCode}. Respuesta API: {RawJson}", paymentId, (int)response.StatusCode, rawJson);
             return false;
+        }
 
         using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
         var root = body.RootElement;
