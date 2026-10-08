@@ -47,6 +47,7 @@ public class Query
             .Where(d => d.PedidoId == pedidoId)
             .ToListAsync();
     }
+    
 }
 public class ProductoDto
 {
