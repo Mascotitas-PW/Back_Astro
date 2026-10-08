@@ -47,7 +47,7 @@ public class Query
             .Where(d => d.PedidoId == pedidoId)
             .ToListAsync();
     }
-    public Task<List<Pedido>> GetPedidos([Service] AppDbContext context)
+   public Task<List<Pedido>> GetPedidos([Service] AppDbContext context)
 {
     return context.Pedidos
         .AsNoTracking()
