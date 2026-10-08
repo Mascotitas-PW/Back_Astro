@@ -72,7 +72,6 @@ public sealed class MercadoPagoPaymentService(
                 }
             },
             ["external_reference"] = $"checkout-{usuario.Id}-{Guid.NewGuid():N}",
-            ["currency_id"] = currency,
             ["metadata"] = new
             {
                 usuario_id = usuario.Id,
