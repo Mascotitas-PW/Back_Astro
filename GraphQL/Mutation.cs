@@ -13,13 +13,15 @@ public record ItemPedidoInput(int ProductoId, int Cantidad);
 public record CrearPedidoInput(int UsuarioId, List<ItemPedidoInput> Items);
 
 public class Mutation
+
 {
     public async Task<string> Registrar(
     string nombre,
     string email,
     string password,
-    string? rol, // Nuevo parámetro opcional
-    [Service] AppDbContext context)
+     [Service] AppDbContext context,
+    string? rol = "Cliente")
+
 {
     var emailLimpio = email.Trim().ToLower();
 
