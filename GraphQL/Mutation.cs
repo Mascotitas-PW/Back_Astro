@@ -10,7 +10,7 @@ namespace back.GraphQL;
 public record ItemPedidoInput(int ProductoId, int Cantidad);
 
 [GraphQLName("CrearPedidoInput")]
-public record CrearPedidoInput(int UsuarioId, List<ItemPedidoInput> Items);
+public record CrearPedidoInput(int UsuarioId, List<ItemPedidoInput> Items, long PaymentId);
 
 public class Mutation
 
@@ -75,7 +75,10 @@ public class Mutation
     throw new GraphQLException("Usuario o contraseña incorrectos.");
 }
 
-    public async Task<Pedido> CrearPedido(CrearPedidoInput input, [Service] AppDbContext context)
+    public async Task<Pedido> CrearPedido(
+        CrearPedidoInput input,
+        [Service] AppDbContext context,
+        [Service] MercadoPagoPaymentService payments)
 {
     if (input.Items == null || input.Items.Count == 0)
         throw new GraphQLException("El pedido no tiene productos.");
@@ -100,6 +103,7 @@ public class Mutation
         .ToDictionaryAsync(p => p.Id);
 
     var detalles = new List<DetallePedido>();
+    decimal total = 0;
     
     foreach (var item in items)
     {
@@ -110,6 +114,7 @@ public class Mutation
             throw new GraphQLException($"Stock insuficiente para '{producto.Nombre}' (disponible: {producto.Stock}).");
 
         producto.Stock -= item.Cantidad;
+        total += producto.Precio * item.Cantidad;
 
         detalles.Add(new DetallePedido
         {
@@ -119,6 +124,14 @@ public class Mutation
         });
     }
 
+    var pagoValido = await payments.IsApprovedForOrderAsync(
+        input.PaymentId,
+        input.UsuarioId,
+        items.ToDictionary(item => item.ProductoId, item => item.Cantidad),
+        total);
+    if (!pagoValido)
+        throw new GraphQLException("El pago no está aprobado o no corresponde al importe del pedido.");
+
     await using var tx = await context.Database.BeginTransactionAsync();
 
     var pedido = new Pedido
@@ -127,7 +140,7 @@ public class Mutation
         Fecha = DateTime.UtcNow,
         Status = "Pendiente",
         UsuarioId = input.UsuarioId,
-        Total = (float)detalles.Sum(d => (decimal)d.PrecioUnitario * d.Cantidad)
+        Total = (float)total
     };
 
     context.Pedidos.Add(pedido);
