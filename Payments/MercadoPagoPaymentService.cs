@@ -6,7 +6,8 @@ using Microsoft.EntityFrameworkCore;
 public sealed class MercadoPagoPaymentService(
     HttpClient httpClient,
     IConfiguration configuration,
-    AppDbContext context)
+    AppDbContext context,
+    ILogger<MercadoPagoPaymentService> logger)
 {
     public async Task<PaymentResult> ProcessAsync(ProcessOrderRequest request)
     {
@@ -90,10 +91,23 @@ public sealed class MercadoPagoPaymentService(
             Content = JsonContent.Create(payment)
         };
         message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        message.Headers.Add("X-Idempotency-Key", Guid.NewGuid().ToString());
 
         using var response = await httpClient.SendAsync(message);
         if (!response.IsSuccessStatusCode)
-            return new PaymentResult("rejected", null, null, "Mercado Pago no pudo procesar el pago.");
+        {
+            var error = await ReadApiErrorAsync(response);
+            logger.LogWarning(
+                "Mercado Pago rechazó el pago. HTTP {StatusCode}; código {ErrorCode}; detalle {ErrorMessage}",
+                (int)response.StatusCode,
+                error.Code,
+                error.Message);
+            return new PaymentResult(
+                "rejected",
+                null,
+                error.Code,
+                "Mercado Pago rechazó el pago. Consulta los logs del backend para ver el motivo.");
+        }
 
         using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
         var root = body.RootElement;
@@ -176,4 +190,32 @@ public sealed class MercadoPagoPaymentService(
         element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
+
+    private static async Task<(string? Code, string? Message)> ReadApiErrorAsync(HttpResponseMessage response)
+    {
+        try
+        {
+            using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+            var root = body.RootElement;
+            var code = ReadString(root, "error");
+            var message = ReadString(root, "message");
+
+            if (root.TryGetProperty("cause", out var causes) &&
+                causes.ValueKind == JsonValueKind.Array && causes.GetArrayLength() > 0)
+            {
+                var cause = causes[0];
+                var causeCode = ReadString(cause, "code");
+                var description = ReadString(cause, "description");
+                code = string.Join("/", new[] { code, causeCode }.Where(value => !string.IsNullOrWhiteSpace(value)));
+                if (!string.IsNullOrWhiteSpace(description))
+                    message = string.IsNullOrWhiteSpace(message) ? description : $"{message}: {description}";
+            }
+
+            return (code, message);
+        }
+        catch (JsonException)
+        {
+            return (null, "La respuesta de Mercado Pago no tenía un formato JSON válido.");
+        }
+    }
 }
