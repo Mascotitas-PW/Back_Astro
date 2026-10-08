@@ -15,38 +15,50 @@ public record CrearPedidoInput(int UsuarioId, List<ItemPedidoInput> Items);
 public class Mutation
 {
     public async Task<string> Registrar(
-        string nombre,
-        string email,
-        string password,
-        [Service] AppDbContext context)
+    string nombre,
+    string email,
+    string password,
+    string? rol, // Nuevo parámetro opcional
+    [Service] AppDbContext context)
+{
+    var emailLimpio = email.Trim().ToLower();
+
+    var existe = await context.Usuarios.AnyAsync(u => u.email.ToLower() == emailLimpio);
+    if (existe)
     {
-        var emailLimpio = email.Trim().ToLower();
+        throw new GraphQLException(
+            ErrorBuilder.New()
+                .SetMessage("El correo electrónico ya está registrado.")
+                .SetCode("EMAIL_DUPLICADO")
+                .Build()
+        );
+    }
 
-        var existe = await context.Usuarios.AnyAsync(u => u.email.ToLower() == emailLimpio);
-        if (existe)
-        {
-            throw new GraphQLException(
-                ErrorBuilder.New()
-                    .SetMessage("El correo electrónico ya está registrado.")
-                    .SetCode("EMAIL_DUPLICADO")
-                    .Build()
-            );
-        }
+    // Validar el rol enviado (para evitar asignaciones no válidas)
+    var rolFinal = string.IsNullOrWhiteSpace(rol) ? "Cliente" : rol.Trim();
+    
+    // Lista de roles permitidos en tu sistema
+    var rolesPermitidos = new[] { "Admin", "Cliente" };
+    if (!rolesPermitidos.Contains(rolFinal))
+    {
+        throw new GraphQLException("El rol especificado no es válido.");
+    }
 
-      string passwordHash = BCrypt.Net.BCrypt.HashPassword(password);
+    string passwordHash = BCrypt.Net.BCrypt.HashPassword(password);
 
     var nuevoUsuario = new User
     {
         Nombre = nombre.Trim(),
         email = emailLimpio,
         Password = passwordHash, 
-        Rol = "Cliente"
+        Rol = rolFinal // Usa el rol asignado o el valor por defecto
     };
-        context.Usuarios.Add(nuevoUsuario);
-        await context.SaveChangesAsync();
 
-        return "Usuario registrado con éxito";
-    }
+    context.Usuarios.Add(nuevoUsuario);
+    await context.SaveChangesAsync();
+
+    return "Usuario registrado con éxito";
+}
 
     public async Task<User> Login(string email, string password, [Service] AppDbContext context)
 {
