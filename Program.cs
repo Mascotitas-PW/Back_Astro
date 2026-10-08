@@ -32,26 +32,26 @@ var app = builder.Build();
 //Middleware
 app.UseCors("AllowReact");
 app.MapGraphQL("/graphql");
-app.MapPost("/process_order", async (
-    ProcessOrderRequest request,
-    MercadoPagoPaymentService payments,
+app.MapPost("/webhook/mercadopago", async (
+    HttpContext context,
     ILogger<Program> logger) =>
 {
     try
     {
-        return Results.Ok(await payments.ProcessAsync(request));
+        // 1. Leer el cuerpo del JSON que envía Mercado Pago
+        using var reader = new StreamReader(context.Request.Body);
+        var body = await reader.ReadToEndAsync();
+        
+        logger.LogInformation("Notificación de Mercado Pago recibida: {Body}", body);
+
+        // 2. IMPORTANTE: Mercado Pago requiere una respuesta 200 OK rápida
+        return Results.Ok();
     }
-    catch (PaymentRequestException exception)
+    catch (Exception ex)
     {
-        return Results.BadRequest(new { status = "rejected", message = exception.Message });
-    }
-    catch (InvalidOperationException exception)
-    {
-        logger.LogError(exception, "Mercado Pago is not configured.");
-        return Results.Problem(
-            title: "El servicio de pago no está configurado.",
-            statusCode: StatusCodes.Status503ServiceUnavailable,
-            extensions: new Dictionary<string, object?> { ["status"] = "rejected" });
+        logger.LogError(ex, "Error procesando el Webhook de Mercado Pago");
+        // Si devuelves un error (500), Mercado Pago reintentará enviar la notificación
+        return Results.Ok(); 
     }
 });
 
