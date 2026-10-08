@@ -3,6 +3,8 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 
+namespace back.Payments;
+
 public sealed class MercadoPagoPaymentService(
     HttpClient httpClient,
     IConfiguration configuration,

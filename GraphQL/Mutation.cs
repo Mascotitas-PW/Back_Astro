@@ -3,7 +3,7 @@ using back.Models;
 using HotChocolate; 
 using back;
 using BCrypt.Net;
-
+using back.Payments;
 namespace back.GraphQL;
 
 [GraphQLName("ItemPedidoInput")]
