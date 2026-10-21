@@ -17,7 +17,7 @@ public record ProductoInput(
 );
 
 [ExtendObjectType(typeof(Mutation))]
-public class ProductoMutations
+public class ProductMutation
 {
     [Authorize(Roles = new[] { "Admin" })]
     public async Task<Producto> CrearProducto(

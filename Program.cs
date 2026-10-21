@@ -84,7 +84,7 @@ builder.Services
     .AddAuthorization()
     .AddQueryType<Query>()
     .AddMutationType<Mutation>()
-    .AddTypeExtension<ProductoMutation>()
+    .AddTypeExtension<ProductMutation>()
     .AddSubscriptionType<Subscription>()
     .AddInMemorySubscriptions()
     .AddFiltering()
