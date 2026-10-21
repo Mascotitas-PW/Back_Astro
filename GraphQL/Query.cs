@@ -1,9 +1,9 @@
-using back.Services.Auth;
 using Microsoft.EntityFrameworkCore;
 using HotChocolate;
 using HotChocolate.Authorization;
 using System.Security.Claims;
 using back.Models;
+using back.Services.Auth;
 
 public class Query
 {
@@ -27,6 +27,7 @@ public class Query
                 Precio = p.Precio,
                 Imagen = p.Imagen,
                 Stock = p.Stock,
+                CategoriaId = p.CategoriaId,
                 Categoria = p.Categoria != null
                     ? p.Categoria.Nombre
                     : "Sin Categoría"
@@ -112,19 +113,90 @@ public class Query
             .Where(d => d.PedidoId == pedidoId)
             .ToListAsync();
     }
-}
 
-public class ProductoDto
-{
-    public int Id { get; set; }
+    // Estadísticas para el panel de administración (solo administrador)
+    [Authorize(Roles = new[] { "Admin" })]
+    public async Task<EstadisticasDto> GetEstadisticas(
+        [Service] AppDbContext context)
+    {
+        var pedidos = await context.Pedidos.AsNoTracking().ToListAsync();
+        var detalles = await context.DetallePedidos.AsNoTracking().ToListAsync();
+        var productos = await context.Productos
+            .AsNoTracking()
+            .Include(p => p.Categoria)
+            .ToDictionaryAsync(p => p.Id);
 
-    public string Nombre { get; set; } = string.Empty;
+        var totalVentas = pedidos.Sum(p => (decimal)p.Total);
 
-    public decimal Precio { get; set; }
+        // Últimos 30 días, incluyendo los días sin ventas
+        var hoy = DateTime.UtcNow.Date;
+        var porDia = pedidos
+            .GroupBy(p => p.Fecha.Date)
+            .ToDictionary(g => g.Key, g => g);
 
-    public string Imagen { get; set; } = string.Empty;
+        var ventasPorDia = Enumerable.Range(0, 30)
+            .Select(i => hoy.AddDays(i - 29))
+            .Select(dia => new VentaDiaDto
+            {
+                Fecha = dia.ToString("yyyy-MM-dd"),
+                Total = porDia.TryGetValue(dia, out var g)
+                    ? g.Sum(p => (decimal)p.Total) : 0,
+                Pedidos = porDia.TryGetValue(dia, out var g2) ? g2.Count() : 0
+            })
+            .ToList();
 
-    public int Stock { get; set; }
+        var ventasProducto = detalles
+            .GroupBy(d => d.ProductoId)
+            .Select(g => new
+            {
+                ProductoId = g.Key,
+                Unidades = g.Sum(d => d.Cantidad),
+                Ingresos = g.Sum(d => (decimal)d.PrecioUnitario * d.Cantidad)
+            })
+            .ToList();
 
-    public string Categoria { get; set; } = string.Empty;
+        var top = ventasProducto
+            .OrderByDescending(v => v.Unidades)
+            .Take(5)
+            .Select(v => new TopProductoDto
+            {
+                ProductoId = v.ProductoId,
+                Nombre = productos.TryGetValue(v.ProductoId, out var p)
+                    ? p.Nombre : "Producto eliminado",
+                Unidades = v.Unidades,
+                Ingresos = v.Ingresos
+            })
+            .ToList();
+
+        var porCategoria = ventasProducto
+            .GroupBy(v => productos.TryGetValue(v.ProductoId, out var p)
+                && p.Categoria != null ? p.Categoria.Nombre : "Sin categoría")
+            .Select(g => new VentaCategoriaDto
+            {
+                Categoria = g.Key,
+                Ingresos = g.Sum(v => v.Ingresos)
+            })
+            .OrderByDescending(c => c.Ingresos)
+            .ToList();
+
+        return new EstadisticasDto
+        {
+            TotalVentas = totalVentas,
+            TotalPedidos = pedidos.Count,
+            TicketPromedio = pedidos.Count == 0 ? 0 : totalVentas / pedidos.Count,
+            VentasPorDia = ventasPorDia,
+            TopProductos = top,
+            VentasPorCategoria = porCategoria
+        };
+    }
+     public class ProductoDto
+    {
+        public int Id { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        public decimal Precio { get; set; }
+        public string Imagen { get; set; } = string.Empty;
+        public int Stock { get; set; }
+        public int CategoriaId { get; set; }
+        public string Categoria { get; set; } = string.Empty;
+    }
 }

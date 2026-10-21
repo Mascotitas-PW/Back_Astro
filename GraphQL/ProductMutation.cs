@@ -17,10 +17,8 @@ public record ProductoInput(
 );
 
 [ExtendObjectType(typeof(Mutation))]
-public class ProductoMutation
+public class ProductoMutations
 {
-    public const string TopicProductoActualizado = "ProductoActualizado";
-
     [Authorize(Roles = new[] { "Admin" })]
     public async Task<Producto> CrearProducto(
         ProductoInput input,
@@ -40,7 +38,7 @@ public class ProductoMutation
 
         context.Productos.Add(producto);
         await context.SaveChangesAsync();
-        await sender.SendAsync(TopicProductoActualizado, producto);
+        await sender.SendAsync(Subscription.TopicStock, new StockActualizado(producto.Id, producto.Stock));
 
         return producto;
     }
@@ -64,7 +62,7 @@ public class ProductoMutation
         producto.CategoriaId = input.CategoriaId;
 
         await context.SaveChangesAsync();
-        await sender.SendAsync(TopicProductoActualizado, producto);
+        await sender.SendAsync(Subscription.TopicStock, new StockActualizado(producto.Id, producto.Stock));
 
         return producto;
     }

@@ -1,12 +1,16 @@
-using back.Models;
 using HotChocolate;
 using HotChocolate.Types;
 
 namespace back.GraphQL;
 
+[GraphQLName("StockActualizado")]
+public record StockActualizado(int ProductoId, int Stock);
+
 public class Subscription
 {
+    public const string TopicStock = "StockActualizado";
+
     [Subscribe]
-    [Topic(ProductoMutation.TopicProductoActualizado)]
-    public Producto OnProductoActualizado([EventMessage] Producto producto) => producto;
+    [Topic(TopicStock)]
+    public StockActualizado OnStockActualizado([EventMessage] StockActualizado evento) => evento;
 }

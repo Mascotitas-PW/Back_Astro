@@ -1,9 +1,11 @@
+
 using Microsoft.EntityFrameworkCore;
 using HotChocolate;
 using HotChocolate.Authorization;
 using System.Security.Claims;
 using back.Models;
 using back.Payments;
+using HotChocolate.Subscriptions;
 using back.Services.Auth;
 
 namespace back.GraphQL;
@@ -66,7 +68,8 @@ public class Mutation
         CrearPedidoInput input,
         ClaimsPrincipal user,
         [Service] AppDbContext context,
-        [Service] MercadoPagoPaymentService payments)
+        [Service] MercadoPagoPaymentService payments,
+        [Service] ITopicEventSender sender)
     {
         // Validar propietario o administrador
         ValidarPropietario(user, input.UsuarioId);
@@ -180,6 +183,8 @@ public class Mutation
 
             await tx.CommitAsync();
 
+            await PublicarStock(sender, productos.Values);
+
             return pedido;
         }
         catch
@@ -194,7 +199,8 @@ public class Mutation
     public async Task<Pedido> CrearPedidoSinPago(
         CrearPedidoSinPagoInput input,
         ClaimsPrincipal user,
-        [Service] AppDbContext context)
+        [Service] AppDbContext context,
+        [Service] ITopicEventSender sender)
     {
         // Validar propietario o administrador
         ValidarPropietario(user, input.UsuarioId);
@@ -303,6 +309,8 @@ public class Mutation
 
             await tx.CommitAsync();
 
+            await PublicarStock(sender, productos.Values);
+
             return pedido;
         }
         catch
@@ -313,6 +321,27 @@ public class Mutation
     }
 
     // MÉTODOS AUXILIARES
+
+    // Avisa a los suscriptores (panel de admin, detalle de producto)
+    // el stock nuevo de cada producto. Un fallo aquí no debe romper el pedido.
+    private static async Task PublicarStock(
+        ITopicEventSender sender,
+        IEnumerable<Producto> productos)
+    {
+        try
+        {
+            foreach (var p in productos)
+            {
+                await sender.SendAsync(
+                    Subscription.TopicStock,
+                    new StockActualizado(p.Id, p.Stock));
+            }
+        }
+        catch
+        {
+            // El pedido ya se guardó; el stock en vivo es secundario.
+        }
+    }
 
     private static void ValidarPropietario(
         ClaimsPrincipal user,
