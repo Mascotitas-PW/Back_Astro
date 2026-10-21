@@ -119,6 +119,9 @@ public class Mutation
             total += producto.Precio * item.Cantidad;
         }
 
+        // El pago cobrado incluye el envío
+        total += Envio.Calcular(total);
+
         // Comprobar que el pago esté aprobado y corresponda
         // al usuario, productos, cantidades e importe del pedido.
         var pagoValido = await payments.IsApprovedForOrderAsync(
@@ -282,7 +285,7 @@ public class Mutation
             }
 
             
-            var envio = subtotal > 500 ? 0m : 99m;
+            var envio = Envio.Calcular(subtotal);
             var total = subtotal + envio;
 
             var pedido = new Pedido

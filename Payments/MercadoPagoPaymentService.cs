@@ -55,6 +55,7 @@ public sealed class MercadoPagoPaymentService(
             amount += product.Precio * item.Cantidad;
         }
 
+        amount += Envio.Calcular(amount); // el cobro incluye el envío
         amount = decimal.Round(amount, 2, MidpointRounding.AwayFromZero);
         var currency = configuration["MERCADOPAGO_CURRENCY"] ?? "MXN";
 

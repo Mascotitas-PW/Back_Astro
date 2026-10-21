@@ -26,7 +26,10 @@ public class JwtService(IConfiguration configuration) : IJwtService
                 new Claim(ClaimTypes.NameIdentifier, usuario.Id.ToString()),
                 new Claim(ClaimTypes.Name, usuario.Nombre),
                 new Claim(ClaimTypes.Email, usuario.email),
-                new Claim(ClaimTypes.Role, usuario.Rol)
+                new Claim(ClaimTypes.Role,
+                    usuario.Rol.Trim().Equals("admin", StringComparison.OrdinalIgnoreCase)
+                        ? "Admin"
+                        : usuario.Rol.Trim())
             }),
             Issuer = issuer,
             Audience = audience,
