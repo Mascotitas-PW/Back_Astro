@@ -1,238 +1,390 @@
 using Microsoft.EntityFrameworkCore;
-using back.Models; 
-using HotChocolate; 
-using back;
-using BCrypt.Net;
+using HotChocolate;
+using HotChocolate.Authorization;
+using System.Security.Claims;
+using back.Models;
 using back.Payments;
+using back.Services.Auth;
+
 namespace back.GraphQL;
 
+// Producto y cantidad solicitada
 [GraphQLName("ItemPedidoInput")]
-public record ItemPedidoInput(int ProductoId, int Cantidad);
+public record ItemPedidoInput(
+    int ProductoId,
+    int Cantidad
+);
 
+// Pedido con pago mediante Mercado Pago
 [GraphQLName("CrearPedidoInput")]
-public record CrearPedidoInput(int UsuarioId, List<ItemPedidoInput> Items, long PaymentId);
+public record CrearPedidoInput(
+    int UsuarioId,
+    List<ItemPedidoInput> Items,
+    long PaymentId,
+    string NombreCompleto,
+    string DireccionEntrega,
+    string Telefono
+);
 
+// Pedido con pago fuera de línea
 [GraphQLName("CrearPedidoSinPagoInput")]
-public record CrearPedidoSinPagoInput(int UsuarioId, List<ItemPedidoInput> Items, string MetodoPago);
+public record CrearPedidoSinPagoInput(
+    int UsuarioId,
+    List<ItemPedidoInput> Items,
+    string MetodoPago,
+    string NombreCompleto,
+    string DireccionEntrega,
+    string Telefono
+);
 
 public class Mutation
-
 {
-    public async Task<string> Registrar(
-    string nombre,
-    string email,
-    string password,
-    string? rol,
-    [Service] AppDbContext context)
-
-{
-    var emailLimpio = email.Trim().ToLower();
-
-    var existe = await context.Usuarios.AnyAsync(u => u.email.ToLower() == emailLimpio);
-    if (existe)
+    // REGISTRAR USUARIO
+    // IAuthService debe ignorar el rol enviado y crear un Cliente.
+    public Task<string> Registrar(
+        string nombre,
+        string email,
+        string password,
+        string? rol,
+        [Service] IAuthService auth)
     {
-        throw new GraphQLException(
-            ErrorBuilder.New()
-                .SetMessage("El correo electrónico ya está registrado.")
-                .SetCode("EMAIL_DUPLICADO")
-                .Build()
-        );
+        return auth.RegistrarAsync(nombre, email, password);
     }
 
-
-    var rolFinal = string.IsNullOrWhiteSpace(rol) ? "Cliente" : rol.Trim();
-    
-
-    var rolesPermitidos = new[] { "Admin", "Cliente" };
-    if (!rolesPermitidos.Contains(rolFinal))
+    // INICIAR SESIÓN
+    public Task<AuthPayload> Login(
+        string email,
+        string password,
+        [Service] IAuthService auth)
     {
-        throw new GraphQLException("El rol especificado no es válido.");
+        return auth.LoginAsync(email, password);
     }
 
-    string passwordHash = BCrypt.Net.BCrypt.HashPassword(password);
-
-    var nuevoUsuario = new User
-    {
-        Nombre = nombre.Trim(),
-        email = emailLimpio,
-        Password = passwordHash, 
-        Rol = rolFinal 
-    };
-
-    context.Usuarios.Add(nuevoUsuario);
-    await context.SaveChangesAsync();
-
-    return "Usuario registrado con éxito";
-}
-
-  public async Task<User> Login(string email, string password, [Service] AppDbContext context)
-{
-    var emailLimpio = email.Trim().ToLower();
-    var usuario = await context.Usuarios.FirstOrDefaultAsync(u => u.email.ToLower() == emailLimpio);
-
-    if (usuario != null && BCrypt.Net.BCrypt.Verify(password, usuario.Password))
-        return usuario;
-
-    throw new GraphQLException("Usuario o contraseña incorrectos.");
-}
-
+    // CREAR PEDIDO CON MERCADO PAGO
+    [Authorize]
     public async Task<Pedido> CrearPedido(
         CrearPedidoInput input,
+        ClaimsPrincipal user,
         [Service] AppDbContext context,
         [Service] MercadoPagoPaymentService payments)
-{
-    if (input.Items == null || input.Items.Count == 0)
-        throw new GraphQLException("El pedido no tiene productos.");
-
-    if (input.Items.Any(i => i.Cantidad <= 0))
-        throw new GraphQLException("Todas las cantidades deben ser mayores a 0.");
-
-    // Validar usuario
-    var usuarioExiste = await context.Usuarios.AnyAsync(u => u.Id == input.UsuarioId);
-    if (!usuarioExiste)
-        throw new GraphQLException($"El usuario con ID {input.UsuarioId} no existe.");
-
-    // Agrupar items repetidos
-    var items = input.Items
-        .GroupBy(i => i.ProductoId)
-        .Select(g => new ItemPedidoInput(g.Key, g.Sum(x => x.Cantidad)))
-        .ToList();
-
-    var ids = items.Select(i => i.ProductoId).ToList();
-    var productos = await context.Productos
-        .Where(p => ids.Contains(p.Id))
-        .ToDictionaryAsync(p => p.Id);
-
-    var detalles = new List<DetallePedido>();
-    decimal total = 0;
-    
-    foreach (var item in items)
     {
-        if (!productos.TryGetValue(item.ProductoId, out var producto))
-            throw new GraphQLException($"El producto {item.ProductoId} no existe.");
+        // Validar propietario o administrador
+        ValidarPropietario(user, input.UsuarioId);
 
-        if (producto.Stock < item.Cantidad)
-            throw new GraphQLException($"Stock insuficiente para '{producto.Nombre}' (disponible: {producto.Stock}).");
+        // Validar datos de entrega
+        var (nombre, direccion, telefono) =
+            ValidarDatosEntrega(
+                input.NombreCompleto,
+                input.DireccionEntrega,
+                input.Telefono
+            );
 
-        producto.Stock -= item.Cantidad;
-        total += producto.Precio * item.Cantidad;
+        // Validar productos solicitados
+        var items = ValidarItems(input.Items);
 
-        detalles.Add(new DetallePedido
+        if (!await context.Usuarios.AnyAsync(
+                u => u.Id == input.UsuarioId))
         {
-            ProductoId = producto.Id,
-            Cantidad = item.Cantidad,
-            PrecioUnitario = (float)producto.Precio
-        });
+            throw new GraphQLException(
+                $"El usuario con ID {input.UsuarioId} no existe.");
+        }
+
+        var ids = items.Select(i => i.ProductoId).ToList();
+
+        var productos = await context.Productos
+            .Where(p => ids.Contains(p.Id))
+            .ToDictionaryAsync(p => p.Id);
+
+        decimal total = 0;
+
+        foreach (var item in items)
+        {
+            if (!productos.TryGetValue(
+                    item.ProductoId, out var producto))
+            {
+                throw new GraphQLException(
+                    $"El producto {item.ProductoId} no existe.");
+            }
+
+            if (producto.Stock < item.Cantidad)
+            {
+                throw new GraphQLException(
+                    $"Stock insuficiente para '{producto.Nombre}' " +
+                    $"(disponible: {producto.Stock}).");
+            }
+
+            total += producto.Precio * item.Cantidad;
+        }
+
+        // Comprobar que el pago esté aprobado y corresponda
+        // al usuario, productos, cantidades e importe del pedido.
+        var pagoValido = await payments.IsApprovedForOrderAsync(
+            input.PaymentId,
+            input.UsuarioId,
+            items.ToDictionary(
+                item => item.ProductoId,
+                item => item.Cantidad),
+            total
+        );
+
+        if (!pagoValido)
+        {
+            throw new GraphQLException(
+                "El pago no está aprobado o no corresponde " +
+                "al importe del pedido.");
+        }
+
+        // Guardar pedido y descontar stock en una transacción.
+        await using var tx =
+            await context.Database.BeginTransactionAsync();
+
+        try
+        {
+            var detalles = new List<DetallePedido>();
+
+            foreach (var item in items)
+            {
+                var producto = productos[item.ProductoId];
+
+                producto.Stock -= item.Cantidad;
+
+                detalles.Add(new DetallePedido
+                {
+                    ProductoId = producto.Id,
+                    Cantidad = item.Cantidad,
+                    PrecioUnitario = (float)producto.Precio
+                });
+            }
+
+            var pedido = new Pedido
+            {
+                Fecha = DateTime.UtcNow,
+                Status = "Pendiente",
+                UsuarioId = input.UsuarioId,
+                NombreCompleto = nombre,
+                DireccionEntrega = direccion,
+                Telefono = telefono,
+                Total = (float)total
+            };
+
+            context.Pedidos.Add(pedido);
+            await context.SaveChangesAsync();
+
+            foreach (var detalle in detalles)
+            {
+                detalle.PedidoId = pedido.Id;
+            }
+
+            context.DetallePedidos.AddRange(detalles);
+            await context.SaveChangesAsync();
+
+            await tx.CommitAsync();
+
+            return pedido;
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
     }
 
-    var pagoValido = await payments.IsApprovedForOrderAsync(
-        input.PaymentId,
-        input.UsuarioId,
-        items.ToDictionary(item => item.ProductoId, item => item.Cantidad),
-        total);
-    if (!pagoValido)
-        throw new GraphQLException("El pago no está aprobado o no corresponde al importe del pedido.");
-
-    await using var tx = await context.Database.BeginTransactionAsync();
-
-    var pedido = new Pedido
-    {
-        
-        Fecha = DateTime.UtcNow,
-        Status = "Pendiente",
-        UsuarioId = input.UsuarioId,
-        Total = (float)total
-    };
-
-    context.Pedidos.Add(pedido);
-    await context.SaveChangesAsync();
-
-    foreach (var d in detalles)
-    {
-        d.PedidoId = pedido.Id;
-    }
-
-    context.DetallePedidos.AddRange(detalles);
-    await context.SaveChangesAsync();
-
-    await tx.CommitAsync();
-    return pedido;
-}
-
+    // CREAR PEDIDO SIN PAGO EN LÍNEA
+    [Authorize]
     public async Task<Pedido> CrearPedidoSinPago(
         CrearPedidoSinPagoInput input,
+        ClaimsPrincipal user,
         [Service] AppDbContext context)
-{
-    var metodosPermitidos = new[] { "Efectivo", "Transferencia" };
-    if (!metodosPermitidos.Contains(input.MetodoPago))
-        throw new GraphQLException("Método de pago no válido para este tipo de pedido.");
-
-    if (input.Items == null || input.Items.Count == 0)
-        throw new GraphQLException("El pedido no tiene productos.");
-
-    if (input.Items.Any(i => i.Cantidad <= 0))
-        throw new GraphQLException("Todas las cantidades deben ser mayores a 0.");
-
-    var usuarioExiste = await context.Usuarios.AnyAsync(u => u.Id == input.UsuarioId);
-    if (!usuarioExiste)
-        throw new GraphQLException($"El usuario con ID {input.UsuarioId} no existe.");
-
-    var items = input.Items
-        .GroupBy(i => i.ProductoId)
-        .Select(g => new ItemPedidoInput(g.Key, g.Sum(x => x.Cantidad)))
-        .ToList();
-
-    var ids = items.Select(i => i.ProductoId).ToList();
-    var productos = await context.Productos
-        .Where(p => ids.Contains(p.Id))
-        .ToDictionaryAsync(p => p.Id);
-
-    await using var tx = await context.Database.BeginTransactionAsync();
-
-    var detalles = new List<DetallePedido>();
-    decimal subtotal = 0;
-
-    foreach (var item in items)
     {
-        if (!productos.TryGetValue(item.ProductoId, out var producto))
-            throw new GraphQLException($"El producto {item.ProductoId} no existe.");
+        // Validar propietario o administrador
+        ValidarPropietario(user, input.UsuarioId);
 
-        if (producto.Stock < item.Cantidad)
-            throw new GraphQLException($"Stock insuficiente para '{producto.Nombre}' (disponible: {producto.Stock}).");
-
-        producto.Stock -= item.Cantidad;
-        subtotal += producto.Precio * item.Cantidad;
-
-        detalles.Add(new DetallePedido
+        // Solo se permiten estos métodos
+        var metodosPermitidos = new[]
         {
-            ProductoId = producto.Id,
-            Cantidad = item.Cantidad,
-            PrecioUnitario = (float)producto.Precio
-        });
+            "Efectivo",
+            "Transferencia"
+        };
+
+        var metodoPago = (input.MetodoPago ?? "").Trim();
+
+        if (!metodosPermitidos.Contains(
+                metodoPago, StringComparer.OrdinalIgnoreCase))
+        {
+            throw new GraphQLException(
+                "Método de pago no válido para este tipo de pedido.");
+        }
+
+        // Validar datos de entrega
+        var (nombre, direccion, telefono) =
+            ValidarDatosEntrega(
+                input.NombreCompleto,
+                input.DireccionEntrega,
+                input.Telefono
+            );
+
+        // Validar productos
+        var items = ValidarItems(input.Items);
+
+        if (!await context.Usuarios.AnyAsync(
+                u => u.Id == input.UsuarioId))
+        {
+            throw new GraphQLException(
+                $"El usuario con ID {input.UsuarioId} no existe.");
+        }
+
+        var ids = items.Select(i => i.ProductoId).ToList();
+
+        await using var tx =
+            await context.Database.BeginTransactionAsync();
+
+        try
+        {
+            var productos = await context.Productos
+                .Where(p => ids.Contains(p.Id))
+                .ToDictionaryAsync(p => p.Id);
+
+            var detalles = new List<DetallePedido>();
+            decimal subtotal = 0;
+
+            foreach (var item in items)
+            {
+                if (!productos.TryGetValue(
+                        item.ProductoId, out var producto))
+                {
+                    throw new GraphQLException(
+                        $"El producto {item.ProductoId} no existe.");
+                }
+
+                if (producto.Stock < item.Cantidad)
+                {
+                    throw new GraphQLException(
+                        $"Stock insuficiente para '{producto.Nombre}' " +
+                        $"(disponible: {producto.Stock}).");
+                }
+
+                producto.Stock -= item.Cantidad;
+
+                subtotal += producto.Precio * item.Cantidad;
+
+                detalles.Add(new DetallePedido
+                {
+                    ProductoId = producto.Id,
+                    Cantidad = item.Cantidad,
+                    PrecioUnitario = (float)producto.Precio
+                });
+            }
+
+            
+            var envio = subtotal > 500 ? 0m : 99m;
+            var total = subtotal + envio;
+
+            var pedido = new Pedido
+            {
+                Fecha = DateTime.UtcNow,
+                Status = $"Pendiente de pago ({metodoPago})",
+                UsuarioId = input.UsuarioId,
+                NombreCompleto = nombre,
+                DireccionEntrega = direccion,
+                Telefono = telefono,
+                Total = (float)total
+            };
+
+            context.Pedidos.Add(pedido);
+            await context.SaveChangesAsync();
+
+            foreach (var detalle in detalles)
+            {
+                detalle.PedidoId = pedido.Id;
+            }
+
+            context.DetallePedidos.AddRange(detalles);
+            await context.SaveChangesAsync();
+
+            await tx.CommitAsync();
+
+            return pedido;
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
     }
 
-    // Misma regla de envío que el front: gratis arriba de $500
-    var envio = subtotal > 500 ? 0m : 99m;
-    var total = subtotal + envio;
+    // MÉTODOS AUXILIARES
 
-    var pedido = new Pedido
+    private static void ValidarPropietario(
+        ClaimsPrincipal user,
+        int usuarioId)
     {
-        Fecha = DateTime.UtcNow,
-        Status = $"Pendiente de pago ({input.MetodoPago})",
-        UsuarioId = input.UsuarioId,
-        Total = (float)total
-    };
+        if (usuarioId != AuthHelper.ObtenerUsuarioId(user)
+            && !AuthHelper.EsAdmin(user))
+        {
+            throw new GraphQLException(
+                "No puedes crear pedidos a nombre de otro usuario.");
+        }
+    }
 
-    context.Pedidos.Add(pedido);
-    await context.SaveChangesAsync();
+    private static List<ItemPedidoInput> ValidarItems(
+        List<ItemPedidoInput>? items)
+    {
+        if (items == null || items.Count == 0)
+        {
+            throw new GraphQLException(
+                "El pedido no tiene productos.");
+        }
 
-    foreach (var d in detalles)
-        d.PedidoId = pedido.Id;
+        if (items.Any(i => i.Cantidad <= 0))
+        {
+            throw new GraphQLException(
+                "Todas las cantidades deben ser mayores a 0.");
+        }
 
-    context.DetallePedidos.AddRange(detalles);
-    await context.SaveChangesAsync();
+        // Combinar productos repetidos.
+        return items
+            .GroupBy(i => i.ProductoId)
+            .Select(g => new ItemPedidoInput(
+                g.Key,
+                g.Sum(x => x.Cantidad)))
+            .ToList();
+    }
 
-    await tx.CommitAsync();
-    return pedido;
-}
+    private static (
+        string Nombre,
+        string Direccion,
+        string Telefono
+    ) ValidarDatosEntrega(
+        string? nombreCompleto,
+        string? direccionEntrega,
+        string? telefono)
+    {
+        var nombre = (nombreCompleto ?? "").Trim();
+        var direccion = (direccionEntrega ?? "").Trim();
+
+        var telefonoLimpio = new string(
+            (telefono ?? "")
+                .Where(char.IsDigit)
+                .ToArray());
+
+        if (nombre.Length < 3)
+        {
+            throw new GraphQLException(
+                "Escribe tu nombre completo.");
+        }
+
+        if (direccion.Length < 5)
+        {
+            throw new GraphQLException(
+                "Escribe una dirección de entrega válida.");
+        }
+
+        if (telefonoLimpio.Length != 10)
+        {
+            throw new GraphQLException(
+                "El teléfono debe tener 10 dígitos.");
+        }
+
+        return (nombre, direccion, telefonoLimpio);
+    }
 }
