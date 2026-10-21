@@ -56,6 +56,10 @@ public class AuthService(AppDbContext context, IJwtService jwt) : IAuthService
         return new AuthPayload
         {
             Token = jwt.GenerateToken(usuario),
+            Id = usuario.Id,
+            Nombre = usuario.Nombre,
+            Email = usuario.email,
+            Rol = usuario.Rol,
             Usuario = usuario
         };
     }
