@@ -15,13 +15,16 @@ public class AppDbContext : DbContext
     {
         
         modelBuilder.Entity<Pedido>(e =>
-        {
-            e.ToTable("Pedido");
-            e.Property(p => p.Id).HasColumnName("id");
-            e.Property(p => p.Fecha).HasColumnName("fecha");
-            e.Property(p => p.Total).HasColumnName("total");
-            e.Property(p => p.Status).HasColumnName("status");
-            e.Property(p => p.UsuarioId).HasColumnName("usuarioid");
+{
+        e.ToTable("Pedido");
+        e.Property(p => p.Id).HasColumnName("id");
+        e.Property(p => p.Fecha).HasColumnName("fecha");
+        e.Property(p => p.Total).HasColumnName("total");
+        e.Property(p => p.Status).HasColumnName("status");
+        e.Property(p => p.UsuarioId).HasColumnName("usuarioid");
+        e.Property(p => p.NombreCompleto).HasColumnName("nombrecompleto");    
+        e.Property(p => p.DireccionEntrega).HasColumnName("direccionentrega");
+        e.Property(p => p.Telefono).HasColumnName("telefono");                 
         });
 
         modelBuilder.Entity<DetallePedido>(e =>
