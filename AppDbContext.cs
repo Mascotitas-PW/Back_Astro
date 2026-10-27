@@ -17,24 +17,24 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Pedido>(e =>
 {
         e.ToTable("Pedido");
-        e.Property(p => p.Id).HasColumnName("id");
-        e.Property(p => p.Fecha).HasColumnName("fecha");
-        e.Property(p => p.Total).HasColumnName("total");
-        e.Property(p => p.Status).HasColumnName("status");
-        e.Property(p => p.UsuarioId).HasColumnName("usuarioid");
-        e.Property(p => p.NombreCompleto).HasColumnName("nombrecompleto");    
-        e.Property(p => p.DireccionEntrega).HasColumnName("direccionentrega");
-        e.Property(p => p.Telefono).HasColumnName("telefono");                 
+        e.Property(p => p.Id).HasColumnName("Id");
+        e.Property(p => p.Fecha).HasColumnName("Fecha");
+        e.Property(p => p.Total).HasColumnName("Total");
+        e.Property(p => p.Status).HasColumnName("Status");
+        e.Property(p => p.UsuarioId).HasColumnName("UsuarioId");
+        e.Property(p => p.NombreCompleto).HasColumnName("NombreCompleto");
+        e.Property(p => p.DireccionEntrega).HasColumnName("DireccionEntrega");
+        e.Property(p => p.Telefono).HasColumnName("Telefono");                 
         });
 
         modelBuilder.Entity<DetallePedido>(e =>
         {
             e.ToTable("DetallePedido");
-            e.Property(d => d.Id).HasColumnName("id");
-            e.Property(d => d.PedidoId).HasColumnName("pedidoid");
-            e.Property(d => d.ProductoId).HasColumnName("productoid");
-            e.Property(d => d.Cantidad).HasColumnName("cantidad");
-            e.Property(d => d.PrecioUnitario).HasColumnName("preciounitario");
+            e.Property(d => d.Id).HasColumnName("Id");
+            e.Property(d => d.PedidoId).HasColumnName("PedidoId");
+            e.Property(d => d.ProductoId).HasColumnName("ProductoId");
+            e.Property(d => d.Cantidad).HasColumnName("Cantidad");
+            e.Property(d => d.PrecioUnitario).HasColumnName("PrecioUnitario");
         });
 
         modelBuilder.Entity<Categoria>().HasData(
