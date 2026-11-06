@@ -103,6 +103,16 @@ public sealed class PayPalPaymentService(
 			capture.Currency != expectedCurrency ||
 			customId?.StartsWith($"checkout-{request.UsuarioId}-", StringComparison.Ordinal) != true)
 		{
+			logger.LogWarning(
+				"La captura de PayPal no coincide. OrderId {OrderId}; estado {Status}; importe recibido {ReceivedAmount}; importe esperado {ExpectedAmount}; moneda recibida {ReceivedCurrency}; moneda esperada {ExpectedCurrency}; custom_id {CustomId}; usuario esperado {UsuarioId}.",
+				orderId,
+				capture.Status,
+				capture.Amount,
+				expectedAmount,
+				capture.Currency,
+				expectedCurrency,
+				customId,
+				request.UsuarioId);
 			throw new PaymentRequestException("El pago capturado no coincide con el pedido esperado.");
 		}
 
