@@ -52,10 +52,10 @@ public static class PayPalEndpoint
 
 			try
 			{
-				var capture = await service.CaptureOrderAsync(orderId, request, cancellationToken);
-				return capture.Status == "COMPLETED"
-					? Results.Ok(capture)
-					: Results.BadRequest(new { message = "PayPal no completó el pago.", capture });
+				var result = await service.CaptureAndCreateOrderAsync(orderId, request, cancellationToken);
+				return result.Capture.Status == "COMPLETED"
+					? Results.Ok(result)
+					: Results.BadRequest(new { message = "PayPal no completó el pago.", capture = result.Capture });
 			}
 			catch (PaymentRequestException ex)
 			{

@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using back.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace back.Payments.PayPal;
@@ -124,6 +125,79 @@ public sealed class PayPalPaymentService(
 		return capture;
 	}
 
+	public async Task<PayPalOrderCaptureResult> CaptureAndCreateOrderAsync(
+		string orderId,
+		PayPalCreateOrderRequest request,
+		CancellationToken cancellationToken)
+	{
+		var nombre = (request.NombreCompleto ?? "").Trim();
+		var direccion = (request.DireccionEntrega ?? "").Trim();
+		var telefono = new string((request.Telefono ?? "").Where(char.IsDigit).ToArray());
+		if (nombre.Length < 3 || direccion.Length < 5 || telefono.Length != 10)
+			throw new PaymentRequestException("Los datos de entrega no son válidos.");
+
+		var capture = await CaptureOrderAsync(orderId, request, cancellationToken);
+		var items = NormalizeItems(request.Items);
+
+		var productIds = items.Select(item => item.ProductoId).ToList();
+		var products = await context.Productos
+			.Where(product => productIds.Contains(product.Id))
+			.ToDictionaryAsync(product => product.Id, cancellationToken);
+		var total = 0m;
+		foreach (var item in items)
+		{
+			if (!products.TryGetValue(item.ProductoId, out var product))
+				throw new PaymentRequestException($"El producto {item.ProductoId} no existe.");
+			if (product.Stock < item.Cantidad)
+				throw new PaymentRequestException($"Stock insuficiente para '{product.Nombre}'.");
+			total += product.Precio * item.Cantidad;
+		}
+		total = decimal.Round(total + Envio.Calcular(total), 2, MidpointRounding.AwayFromZero);
+
+		await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+		try
+		{
+			var details = new List<DetallePedido>();
+			foreach (var item in items)
+			{
+				var product = products[item.ProductoId];
+				product.Stock -= item.Cantidad;
+				details.Add(new DetallePedido
+				{
+					ProductoId = product.Id,
+					Cantidad = item.Cantidad,
+					PrecioUnitario = (float)product.Precio
+				});
+			}
+
+			var pedido = new Pedido
+			{
+				Fecha = DateTime.UtcNow,
+				Status = "Pendiente",
+				UsuarioId = request.UsuarioId,
+				NombreCompleto = nombre,
+				DireccionEntrega = direccion,
+				Telefono = telefono,
+				Total = (float)total
+			};
+			context.Pedidos.Add(pedido);
+			await context.SaveChangesAsync(cancellationToken);
+
+			foreach (var detail in details)
+				detail.PedidoId = pedido.Id;
+			context.DetallePedidos.AddRange(details);
+			await context.SaveChangesAsync(cancellationToken);
+			await transaction.CommitAsync(cancellationToken);
+
+			return new PayPalOrderCaptureResult(capture, pedido);
+		}
+		catch
+		{
+			await transaction.RollbackAsync(cancellationToken);
+			throw;
+		}
+	}
+
 	private async Task ValidateOrderBeforeCaptureAsync(
 		string orderId,
 		int usuarioId,
@@ -179,10 +253,7 @@ public sealed class PayPalPaymentService(
 		if (!await context.Usuarios.AnyAsync(user => user.Id == request.UsuarioId, cancellationToken))
 			throw new PaymentRequestException("El usuario indicado no existe.");
 
-		var items = request.Items
-			.GroupBy(item => item.ProductoId)
-			.Select(group => new PayPalOrderItem(group.Key, group.Sum(item => item.Cantidad)))
-			.ToList();
+		var items = NormalizeItems(request.Items);
 		if (items.Any(item => item.ProductoId < 1 || item.Cantidad < 1))
 			throw new PaymentRequestException("Los productos y cantidades no son válidos.");
 
@@ -202,6 +273,20 @@ public sealed class PayPalPaymentService(
 		}
 
 		return decimal.Round(amount + Envio.Calcular(amount), 2, MidpointRounding.AwayFromZero);
+	}
+
+	private static List<PayPalOrderItem> NormalizeItems(List<PayPalOrderItem>? requestItems)
+	{
+		if (requestItems is null || requestItems.Count == 0)
+			throw new PaymentRequestException("Faltan productos para crear el pedido.");
+
+		var items = requestItems
+			.GroupBy(item => item.ProductoId)
+			.Select(group => new PayPalOrderItem(group.Key, group.Sum(item => item.Cantidad)))
+			.ToList();
+		if (items.Any(item => item.ProductoId < 1 || item.Cantidad < 1))
+			throw new PaymentRequestException("Los productos y cantidades no son válidos.");
+		return items;
 	}
 
 	private async Task<string> GetAccessTokenAsync(CancellationToken cancellationToken)
