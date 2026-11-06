@@ -42,6 +42,8 @@ public sealed class PayPalPaymentService(
 		{
 			Content = JsonContent.Create(order)
 		};
+		message.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+		message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 		message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 		message.Headers.Add("PayPal-Request-Id", Guid.NewGuid().ToString());
 
@@ -152,6 +154,8 @@ public sealed class PayPalPaymentService(
 				["grant_type"] = "client_credentials"
 			})
 		};
+		message.Content.Headers.ContentType = new MediaTypeHeaderValue("application/x-www-form-urlencoded");
+		message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 		message.Headers.Authorization = new AuthenticationHeaderValue(
 			"Basic",
 			Convert.ToBase64String(Encoding.UTF8.GetBytes($"{clientId}:{clientSecret}")));
@@ -174,8 +178,8 @@ public sealed class PayPalPaymentService(
 		string message)
 	{
 		var details = await response.Content.ReadAsStringAsync();
-		logger.LogWarning("PayPal rechazó la solicitud. HTTP {StatusCode}. Respuesta: {Details}",
-			(int)response.StatusCode, details);
+		logger.LogWarning("PayPal rechazó {RequestUri}. HTTP {StatusCode}. Respuesta: {Details}",
+			response.RequestMessage?.RequestUri, (int)response.StatusCode, details);
 		return new InvalidOperationException(message);
 	}
 
