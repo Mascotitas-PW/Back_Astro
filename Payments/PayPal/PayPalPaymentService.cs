@@ -72,6 +72,15 @@ public sealed class PayPalPaymentService(
 
 		var expectedAmount = await CalculateAmountAsync(request, cancellationToken);
 		var accessToken = await GetAccessTokenAsync(cancellationToken);
+		var expectedCurrency = configuration["PayPal:Currency"] ?? "MXN";
+		await ValidateOrderBeforeCaptureAsync(
+			orderId,
+			request.UsuarioId,
+			expectedAmount,
+			expectedCurrency,
+			accessToken,
+			cancellationToken);
+
 		using var message = new HttpRequestMessage(
 			HttpMethod.Post,
 			$"/v2/checkout/orders/{Uri.EscapeDataString(orderId)}/capture")
@@ -96,27 +105,68 @@ public sealed class PayPalPaymentService(
 			ReadCaptureAmount(root),
 			ReadCaptureCurrency(root) ?? configuration["PayPal:Currency"] ?? "MXN");
 
-		var customId = ReadCustomId(root);
-		var expectedCurrency = configuration["PayPal:Currency"] ?? "MXN";
 		if (capture.Status != "COMPLETED" ||
 			capture.Amount != expectedAmount ||
-			capture.Currency != expectedCurrency ||
-			customId?.StartsWith($"checkout-{request.UsuarioId}-", StringComparison.Ordinal) != true)
+			capture.Currency != expectedCurrency)
 		{
 			logger.LogWarning(
-				"La captura de PayPal no coincide. OrderId {OrderId}; estado {Status}; importe recibido {ReceivedAmount}; importe esperado {ExpectedAmount}; moneda recibida {ReceivedCurrency}; moneda esperada {ExpectedCurrency}; custom_id {CustomId}; usuario esperado {UsuarioId}.",
+				"La captura de PayPal no coincide. OrderId {OrderId}; estado {Status}; importe recibido {ReceivedAmount}; importe esperado {ExpectedAmount}; moneda recibida {ReceivedCurrency}; moneda esperada {ExpectedCurrency}; usuario esperado {UsuarioId}.",
 				orderId,
 				capture.Status,
 				capture.Amount,
 				expectedAmount,
 				capture.Currency,
 				expectedCurrency,
-				customId,
 				request.UsuarioId);
 			throw new PaymentRequestException("El pago capturado no coincide con el pedido esperado.");
 		}
 
 		return capture;
+	}
+
+	private async Task ValidateOrderBeforeCaptureAsync(
+		string orderId,
+		int usuarioId,
+		decimal expectedAmount,
+		string expectedCurrency,
+		string accessToken,
+		CancellationToken cancellationToken)
+	{
+		using var message = new HttpRequestMessage(
+			HttpMethod.Get,
+			$"/v2/checkout/orders/{Uri.EscapeDataString(orderId)}");
+		message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+		message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+		using var response = await httpClient.SendAsync(message, cancellationToken);
+		if (!response.IsSuccessStatusCode)
+			throw await CreatePayPalExceptionAsync(response, "No se pudo verificar la orden de PayPal.");
+
+		using var body = await JsonDocument.ParseAsync(
+			await response.Content.ReadAsStreamAsync(cancellationToken),
+			cancellationToken: cancellationToken);
+		var root = body.RootElement;
+		var orderStatus = ReadString(root, "status");
+		var customId = ReadCustomId(root);
+		var orderAmount = ReadPurchaseUnitAmount(root);
+		var orderCurrency = ReadPurchaseUnitCurrency(root);
+		if (orderStatus != "APPROVED" ||
+			orderAmount != expectedAmount ||
+			orderCurrency != expectedCurrency ||
+			customId?.StartsWith($"checkout-{usuarioId}-", StringComparison.Ordinal) != true)
+		{
+			logger.LogWarning(
+				"La orden PayPal no coincide antes de capturar. OrderId {OrderId}; estado {Status}; importe recibido {ReceivedAmount}; importe esperado {ExpectedAmount}; moneda recibida {ReceivedCurrency}; moneda esperada {ExpectedCurrency}; custom_id {CustomId}; usuario esperado {UsuarioId}.",
+				orderId,
+				orderStatus,
+				orderAmount,
+				expectedAmount,
+				orderCurrency,
+				expectedCurrency,
+				customId,
+				usuarioId);
+			throw new PaymentRequestException("La orden de PayPal no coincide con el pedido esperado.");
+		}
 	}
 
 	private async Task<decimal> CalculateAmountAsync(
@@ -219,5 +269,21 @@ public sealed class PayPalPaymentService(
 	private static string? ReadCustomId(JsonElement root) =>
 		root.TryGetProperty("purchase_units", out var units) && units.GetArrayLength() > 0
 			? ReadString(units[0], "custom_id")
+			: null;
+
+	private static decimal? ReadPurchaseUnitAmount(JsonElement root)
+	{
+		if (!root.TryGetProperty("purchase_units", out var units) || units.GetArrayLength() == 0)
+			return null;
+
+		var amount = units[0].GetProperty("amount").GetProperty("value").GetString();
+		return decimal.TryParse(amount, NumberStyles.Number, CultureInfo.InvariantCulture, out var value)
+			? value
+			: null;
+	}
+
+	private static string? ReadPurchaseUnitCurrency(JsonElement root) =>
+		root.TryGetProperty("purchase_units", out var units) && units.GetArrayLength() > 0
+			? units[0].GetProperty("amount").GetProperty("currency_code").GetString()
 			: null;
 }
