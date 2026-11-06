@@ -74,7 +74,10 @@ public sealed class PayPalPaymentService(
 		var accessToken = await GetAccessTokenAsync(cancellationToken);
 		using var message = new HttpRequestMessage(
 			HttpMethod.Post,
-			$"/v2/checkout/orders/{Uri.EscapeDataString(orderId)}/capture");
+			$"/v2/checkout/orders/{Uri.EscapeDataString(orderId)}/capture")
+		{
+			Content = new StringContent(string.Empty, Encoding.UTF8, "application/json")
+		};
 		message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 		message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 		message.Headers.Add("PayPal-Request-Id", Guid.NewGuid().ToString());
