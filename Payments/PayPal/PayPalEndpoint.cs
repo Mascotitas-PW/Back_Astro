@@ -12,6 +12,7 @@ public static class PayPalEndpoint
 			PayPalCreateOrderRequest request,
 			ClaimsPrincipal user,
 			PayPalPaymentService service,
+			ILogger<PayPalPaymentService> logger,
 			CancellationToken cancellationToken) =>
 		{
 			var userId = int.TryParse(
@@ -30,6 +31,7 @@ public static class PayPalEndpoint
 			}
 			catch (InvalidOperationException ex)
 			{
+				logger.LogError(ex, "Error al crear la orden de PayPal para el usuario {UsuarioId}.", request.UsuarioId);
 				return Results.Problem(ex.Message, statusCode: StatusCodes.Status502BadGateway);
 			}
 		});
