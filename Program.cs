@@ -9,6 +9,7 @@ using HotChocolate;
 using back;
 using back.GraphQL;
 using back.Payments;
+using back.Payments.PayPal;
 using back.Services;
 using back.Services.Auth;
 
@@ -30,6 +31,12 @@ builder.Services.AddHttpClient<MercadoPagoPaymentService>(client =>
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
+builder.Services.AddHttpClient<PayPalPaymentService>(client =>
+{
+    client.BaseAddress = new Uri(
+        builder.Configuration["PayPal:BaseUrl"] ?? "https://api-m.sandbox.paypal.com");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
 
 builder.Services.Configure<FormOptions>(options =>
 {
@@ -150,6 +157,7 @@ app.MapPost("/api/imagenes", async (
 
 
 app.MapProcessOrder();
+app.MapPayPal();
 
 
 app.MapPost("/webhook/mercadopago", async (
