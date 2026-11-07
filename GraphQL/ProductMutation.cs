@@ -15,6 +15,11 @@ public record ProductoInput(
     int Stock,
     int CategoriaId
 );
+private static async Task Publicar(ITopicEventSender sender, string tipo, int productoId)
+{
+    try { await sender.SendAsync(Subscription.TopicProducto, new ProductoCambiado(tipo, productoId)); }
+    catch { }
+}
 
 [ExtendObjectType(typeof(Mutation))]
 public class ProductMutation
@@ -39,7 +44,7 @@ public class ProductMutation
         context.Productos.Add(producto);
         await context.SaveChangesAsync();
         await sender.SendAsync(Subscription.TopicStock, new StockActualizado(producto.Id, producto.Stock));
-
+        await Publicar(sender, "creado", producto.Id);
         return producto;
     }
 
@@ -63,7 +68,7 @@ public class ProductMutation
 
         await context.SaveChangesAsync();
         await sender.SendAsync(Subscription.TopicStock, new StockActualizado(producto.Id, producto.Stock));
-
+        await Publicar(sender, "actualizado", producto.Id);
         return producto;
     }
 
@@ -77,6 +82,7 @@ public class ProductMutation
 
         context.Productos.Remove(producto);
         await context.SaveChangesAsync();
+        await Publicar(sender, "eliminado", id);
         return true;
     }
 

@@ -71,5 +71,55 @@ public class AuthService(AppDbContext context, IJwtService jwt) : IAuthService
         return usuario.Password.StartsWith("$2")
             ? BCrypt.Net.BCrypt.Verify(password, usuario.Password)
             : usuario.Password == password; // legado: texto plano
+
+    }
+     public async Task<AuthPayload> LoginGoogleAsync(string idToken)
+    {
+        var clientId = configuration["Google:ClientId"]
+            ?? throw new InvalidOperationException("Falta Google:ClientId.");
+
+        Google.Apis.Auth.GoogleJsonWebSignature.Payload payload;
+        try
+        {
+            payload = await Google.Apis.Auth.GoogleJsonWebSignature.ValidateAsync(
+                idToken,
+                new Google.Apis.Auth.GoogleJsonWebSignature.ValidationSettings
+                {
+                    Audience = new[] { clientId }
+                });
+        }
+        catch (Google.Apis.Auth.InvalidJwtException)
+        {
+            throw new GraphQLException("El token de Google no es válido.");
+        }
+
+        if (!payload.EmailVerified)
+            throw new GraphQLException("Tu correo de Google no está verificado.");
+
+        var email = payload.Email.Trim().ToLowerInvariant();
+        var usuario = await context.Usuarios.FirstOrDefaultAsync(u => u.email == email);
+
+        if (usuario is null)
+        {
+            usuario = new User
+            {
+                Nombre = string.IsNullOrWhiteSpace(payload.Name) ? email.Split('@')[0] : payload.Name,
+                email = email,
+                Password = "",      // cuenta solo de Google: no entra con contraseña
+                Rol = "Cliente"
+            };
+            context.Usuarios.Add(usuario);
+            await context.SaveChangesAsync();
+        }
+
+        return new AuthPayload
+        {
+            Token = jwt.GenerateToken(usuario),
+            Id = usuario.Id,
+            Nombre = usuario.Nombre,
+            Email = usuario.email,
+            Rol = usuario.Rol,
+            Usuario = usuario
+        };
     }
 }
