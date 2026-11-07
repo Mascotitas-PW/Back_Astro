@@ -4,10 +4,9 @@ using back.Services.Auth;
 
 namespace back.GraphQL;
 
-// Validaciones compartidas por las mutaciones de pedidos.
 public static class PedidoAuth
 {
-    // Solo el dueño del pedido (o un administrador) puede crearlo.
+
     public static void ValidarPropietario(ClaimsPrincipal user, int usuarioId)
     {
         if (usuarioId != AuthHelper.ObtenerUsuarioId(user)
@@ -18,7 +17,7 @@ public static class PedidoAuth
         }
     }
 
-    // Valida que haya productos y cantidades correctas, y combina repetidos.
+    
     public static List<ItemPedidoInput> ValidarItems(List<ItemPedidoInput>? items)
     {
         if (items == null || items.Count == 0)
@@ -40,7 +39,7 @@ public static class PedidoAuth
             .ToList();
     }
 
-    // Misma regla que el front: nombre, dirección y teléfono de 10 dígitos.
+    
     public static (string Nombre, string Direccion, string Telefono) ValidarDatosEntrega(
         string? nombreCompleto,
         string? direccionEntrega,
