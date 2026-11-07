@@ -1,4 +1,3 @@
-
 using Microsoft.EntityFrameworkCore;
 using HotChocolate;
 using HotChocolate.Authorization;
@@ -332,12 +331,12 @@ public class Mutation
     // Avisa a los suscriptores (panel de admin, detalle de producto)
     // el stock nuevo de cada producto. Un fallo aquí no debe romper el pedido.
     private static async Task PublicarPedido(ITopicEventSender sender, Pedido pedido)
-{
-    try { await sender.SendAsync(Subscription.TopicPedido, new PedidoCreado(pedido.Id, pedido.UsuarioId)); }
-    catch { }
-}
+    {
+        try { await sender.SendAsync(Subscription.TopicPedido, new PedidoCreado(pedido.Id, pedido.UsuarioId)); }
+        catch { }
+    }
 
-        private static async Task PublicarStock(
+    private static async Task PublicarStock(
         ITopicEventSender sender,
         IEnumerable<Producto> productos)
     {
@@ -429,6 +428,7 @@ public class Mutation
 
         return (nombre, direccion, telefonoLimpio);
     }
-public Task<AuthPayload> LoginGoogle(string idToken, [Service] IAuthService auth)
-    => auth.LoginGoogleAsync(idToken);
+
+    public Task<AuthPayload> LoginGoogle(string idToken, [Service] IAuthService auth)
+        => auth.LoginGoogleAsync(idToken);
 }
