@@ -13,7 +13,7 @@ jobs:
       - run: dotnet restore back.csproj
       - run: dotnet format whitespace back.csproj --verify-no-changes
       - run: dotnet build back.csproj -c Release --no-restore
-      - run: dotnet test Tests/Tests.csproj -c Release       # ajusta al nombre real de tu csproj de pruebas
+      - run: dotnet test Tests/Tests.csproj -c Release       # Ajusta o comenta si aún no tienes proyecto de pruebas
       - run: dotnet publish back.csproj -c Release -o publish --no-build
       - uses: actions/upload-artifact@v4
         with: { name: back-publish, path: publish }
