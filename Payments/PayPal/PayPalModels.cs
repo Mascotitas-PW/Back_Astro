@@ -5,7 +5,9 @@ public sealed record PayPalCreateOrderRequest(
     List<PayPalOrderItem>? Items,
     string? NombreCompleto,
     string? DireccionEntrega,
-    string? Telefono);
+    string? Telefono,
+    double? Latitud,
+    double? Longitud);
 
 public sealed record PayPalOrderItem(int ProductoId, int Cantidad);
 

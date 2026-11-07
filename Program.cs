@@ -75,6 +75,8 @@ builder.Services.AddAuthorization();
 
 
 
+builder.Services.AddResponseCompression();
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReact", policy =>
@@ -93,6 +95,7 @@ builder.Services
     .AddQueryType<Query>()
     .AddMutationType<Mutation>()
     .AddTypeExtension<ProductMutation>()
+    .AddTypeExtension<PedidoMutation>()
     .AddSubscriptionType<Subscription>()
     .AddInMemorySubscriptions()
     .AddFiltering()
@@ -107,6 +110,7 @@ builder.Services
 var app = builder.Build();
 
 
+app.UseResponseCompression();
 app.UseCors("AllowReact");
 
 app.UseAuthentication();
@@ -187,5 +191,23 @@ app.MapPost("/webhook/mercadopago", async (
         return Results.Ok();
     }
 });
+
+// Columnas de ubicación del pedido (idempotente: no falla si ya existen)
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var log = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        await db.Database.ExecuteSqlRawAsync(
+            "ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"Latitud\" double precision NULL");
+        await db.Database.ExecuteSqlRawAsync(
+            "ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"Longitud\" double precision NULL");
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "No se pudieron crear las columnas Latitud/Longitud.");
+    }
+}
 
 app.Run();

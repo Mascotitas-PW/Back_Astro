@@ -12,7 +12,9 @@ public sealed record NuevoPedido(
     string? NombreCompleto,
     string? DireccionEntrega,
     string? Telefono,
-    string Status);
+    string Status,
+    double? Latitud = null,
+    double? Longitud = null);
 
 // Único lugar donde se crea un pedido (Mercado Pago, PayPal y pagos fuera de línea).
 // Lanza PaymentRequestException ante datos inválidos; quien lo llame decide cómo mostrarlo.
@@ -43,6 +45,8 @@ public sealed class PedidoService(AppDbContext context, ITopicEventSender sender
         if (verificarPago is not null)
             await verificarPago(total);
 
+        var ubicacion = NormalizarUbicacion(datos.Latitud, datos.Longitud);
+
         await using var tx = await context.Database.BeginTransactionAsync(ct);
         try
         {
@@ -67,7 +71,9 @@ public sealed class PedidoService(AppDbContext context, ITopicEventSender sender
                 NombreCompleto = nombre,
                 DireccionEntrega = direccion,
                 Telefono = telefono,
-                Total = (float)total
+                Total = (float)total,
+                Latitud = ubicacion.Lat,
+                Longitud = ubicacion.Lng
             };
 
             context.Pedidos.Add(pedido);
@@ -120,6 +126,12 @@ public sealed class PedidoService(AppDbContext context, ITopicEventSender sender
         var total = decimal.Round(subtotal + Envio.Calcular(subtotal), 2, MidpointRounding.AwayFromZero);
         return (normalizados, productos, total);
     }
+
+    // Solo guarda coordenadas válidas (ambas presentes y dentro de rango).
+    private static (double? Lat, double? Lng) NormalizarUbicacion(double? lat, double? lng) =>
+        lat is >= -90 and <= 90 && lng is >= -180 and <= 180
+            ? (lat, lng)
+            : (null, null);
 
     // Combina productos repetidos y rechaza cantidades inválidas.
     private static List<ItemPedidoInput> Normalizar(IEnumerable<ItemPedidoInput>? items)

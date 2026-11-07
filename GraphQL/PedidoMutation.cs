@@ -23,7 +23,9 @@ public record CrearPedidoInput(
     long PaymentId,
     string NombreCompleto,
     string DireccionEntrega,
-    string Telefono
+    string Telefono,
+    double? Latitud,
+    double? Longitud
 );
 
 // Pedido con pago fuera de línea
@@ -34,7 +36,9 @@ public record CrearPedidoSinPagoInput(
     string MetodoPago,
     string NombreCompleto,
     string DireccionEntrega,
-    string Telefono
+    string Telefono,
+    double? Latitud,
+    double? Longitud
 );
 
 // Solo recibe, comprueba permisos y delega. La lógica vive en
@@ -61,7 +65,9 @@ public class PedidoMutation
                 input.Items,
                 input.NombreCompleto,
                 input.DireccionEntrega,
-                input.Telefono);
+                input.Telefono,
+                input.Latitud,
+                input.Longitud);
         }
         catch (PaymentRequestException ex)
         {
@@ -91,7 +97,9 @@ public class PedidoMutation
                 input.NombreCompleto,
                 input.DireccionEntrega,
                 input.Telefono,
-                $"Pendiente de pago ({metodoPago})"));
+                $"Pendiente de pago ({metodoPago})",
+                input.Latitud,
+                input.Longitud));
         }
         catch (PaymentRequestException ex)
         {

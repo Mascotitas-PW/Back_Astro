@@ -18,12 +18,13 @@ public class Subscription
     public const string TopicProducto = "ProductoCambiado";
     public const string TopicPedido = "PedidoCreado";
 
-    [Subscribe, Topic(TopicStock)]
+    // Nombres explícitos: el front se suscribe a onStockActualizado, etc.
+    [Subscribe, Topic(TopicStock), GraphQLName("onStockActualizado")]
     public StockActualizado OnStockActualizado([EventMessage] StockActualizado e) => e;
 
-    [Subscribe, Topic(TopicProducto)]
+    [Subscribe, Topic(TopicProducto), GraphQLName("onProductoCambiado")]
     public ProductoCambiado OnProductoCambiado([EventMessage] ProductoCambiado e) => e;
 
-    [Subscribe, Topic(TopicPedido)]
+    [Subscribe, Topic(TopicPedido), GraphQLName("onPedidoCreado")]
     public PedidoCreado OnPedidoCreado([EventMessage] PedidoCreado e) => e;
 }

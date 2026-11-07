@@ -141,7 +141,9 @@ public sealed class PayPalPaymentService(
                 request.NombreCompleto,
                 request.DireccionEntrega,
                 request.Telefono,
-                "Pendiente"),
+                "Pagado (PayPal)",
+                request.Latitud,
+                request.Longitud),
             async _ => { capture = await CaptureOrderAsync(orderId, request, cancellationToken); },
             cancellationToken);
 

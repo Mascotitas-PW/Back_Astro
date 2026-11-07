@@ -251,10 +251,11 @@ public sealed class MercadoPagoPaymentService(
     }
     public Task<Pedido> CrearPedidoPagadoAsync(
         int usuarioId, long paymentId, IReadOnlyList<ItemPedidoInput> items,
-        string? nombre, string? direccion, string? telefono)
+        string? nombre, string? direccion, string? telefono,
+        double? latitud = null, double? longitud = null)
     {
         return pedidos.CrearAsync(
-            new NuevoPedido(usuarioId, items, nombre, direccion, telefono, "Pendiente"),
+            new NuevoPedido(usuarioId, items, nombre, direccion, telefono, "Pagado (Mercado Pago)", latitud, longitud),
             async total =>
             {
                 var esperados = items

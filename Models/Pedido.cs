@@ -10,5 +10,7 @@ namespace back.Models
         public string? NombreCompleto { get; set; }
         public string? DireccionEntrega { get; set; }
         public string? Telefono { get; set; }
+        public double? Latitud { get; set; }
+        public double? Longitud { get; set; }
     }
 }

@@ -19,7 +19,7 @@ public class Query
         [Service] AppDbContext context)
     {
         return context.Productos
-            .Include(p => p.Categoria)
+            .AsNoTracking()
             .Select(p => new ProductoDto
             {
                 Id = p.Id,
@@ -114,46 +114,55 @@ public class Query
             .ToListAsync();
     }
 
-    // Estadísticas para el panel de administración (solo administrador)
+    // Estadísticas para el panel de administración (solo administrador).
+    // Las sumas se hacen en la base de datos; solo se traen los últimos 30 días.
     [Authorize(Roles = new[] { "Admin" })]
     public async Task<EstadisticasDto> GetEstadisticas(
         [Service] AppDbContext context)
     {
-        var pedidos = await context.Pedidos.AsNoTracking().ToListAsync();
-        var detalles = await context.DetallePedidos.AsNoTracking().ToListAsync();
-        var productos = await context.Productos
+        var offset = TimeSpan.FromHours(-6); // hora de México (sin horario de verano)
+        var hoy = DateTime.SpecifyKind(DateTime.UtcNow.Add(offset).Date, DateTimeKind.Utc);
+        var desde = DateTime.SpecifyKind(hoy.AddDays(-29) - offset, DateTimeKind.Utc);
+
+        var totalPedidos = await context.Pedidos.CountAsync();
+        var sumaTotal = await context.Pedidos.SumAsync(p => (double)p.Total);
+        var totalVentas = decimal.Round((decimal)sumaTotal, 2);
+
+        var recientes = await context.Pedidos
             .AsNoTracking()
-            .Include(p => p.Categoria)
-            .ToDictionaryAsync(p => p.Id);
+            .Where(p => p.Fecha >= desde)
+            .Select(p => new { p.Fecha, p.Total })
+            .ToListAsync();
 
-        var totalVentas = pedidos.Sum(p => (decimal)p.Total);
-
-        // Últimos 30 días, incluyendo los días sin ventas
-        var hoy = DateTime.UtcNow.Date;
-        var porDia = pedidos
-            .GroupBy(p => p.Fecha.Date)
-            .ToDictionary(g => g.Key, g => g);
+        var porDia = recientes
+            .GroupBy(p => p.Fecha.Add(offset).Date)
+            .ToDictionary(g => g.Key, g => (Total: g.Sum(x => (decimal)x.Total), Pedidos: g.Count()));
 
         var ventasPorDia = Enumerable.Range(0, 30)
             .Select(i => hoy.AddDays(i - 29))
             .Select(dia => new VentaDiaDto
             {
                 Fecha = dia.ToString("yyyy-MM-dd"),
-                Total = porDia.TryGetValue(dia, out var g)
-                    ? g.Sum(p => (decimal)p.Total) : 0,
-                Pedidos = porDia.TryGetValue(dia, out var g2) ? g2.Count() : 0
+                Total = porDia.TryGetValue(dia, out var d) ? decimal.Round(d.Total, 2) : 0,
+                Pedidos = porDia.TryGetValue(dia, out var d2) ? d2.Pedidos : 0
             })
             .ToList();
 
-        var ventasProducto = detalles
+        var ventasProducto = await context.DetallePedidos
+            .AsNoTracking()
             .GroupBy(d => d.ProductoId)
             .Select(g => new
             {
                 ProductoId = g.Key,
                 Unidades = g.Sum(d => d.Cantidad),
-                Ingresos = g.Sum(d => (decimal)d.PrecioUnitario * d.Cantidad)
+                Ingresos = g.Sum(d => d.PrecioUnitario * d.Cantidad)
             })
-            .ToList();
+            .ToListAsync();
+
+        var productos = await context.Productos
+            .AsNoTracking()
+            .Select(p => new { p.Id, p.Nombre, Categoria = p.Categoria != null ? p.Categoria.Nombre : null })
+            .ToDictionaryAsync(p => p.Id);
 
         var top = ventasProducto
             .OrderByDescending(v => v.Unidades)
@@ -161,20 +170,19 @@ public class Query
             .Select(v => new TopProductoDto
             {
                 ProductoId = v.ProductoId,
-                Nombre = productos.TryGetValue(v.ProductoId, out var p)
-                    ? p.Nombre : "Producto eliminado",
+                Nombre = productos.TryGetValue(v.ProductoId, out var p) ? p.Nombre : "Producto eliminado",
                 Unidades = v.Unidades,
-                Ingresos = v.Ingresos
+                Ingresos = decimal.Round((decimal)v.Ingresos, 2)
             })
             .ToList();
 
         var porCategoria = ventasProducto
-            .GroupBy(v => productos.TryGetValue(v.ProductoId, out var p)
-                && p.Categoria != null ? p.Categoria.Nombre : "Sin categoría")
+            .GroupBy(v => productos.TryGetValue(v.ProductoId, out var p) && p.Categoria != null
+                ? p.Categoria : "Sin categoría")
             .Select(g => new VentaCategoriaDto
             {
                 Categoria = g.Key,
-                Ingresos = g.Sum(v => v.Ingresos)
+                Ingresos = decimal.Round(g.Sum(v => (decimal)v.Ingresos), 2)
             })
             .OrderByDescending(c => c.Ingresos)
             .ToList();
@@ -182,13 +190,14 @@ public class Query
         return new EstadisticasDto
         {
             TotalVentas = totalVentas,
-            TotalPedidos = pedidos.Count,
-            TicketPromedio = pedidos.Count == 0 ? 0 : totalVentas / pedidos.Count,
+            TotalPedidos = totalPedidos,
+            TicketPromedio = totalPedidos == 0 ? 0 : decimal.Round(totalVentas / totalPedidos, 2),
             VentasPorDia = ventasPorDia,
             TopProductos = top,
             VentasPorCategoria = porCategoria
         };
     }
+
     public class ProductoDto
     {
         public int Id { get; set; }
