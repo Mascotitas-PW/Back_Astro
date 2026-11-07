@@ -12,6 +12,7 @@ public class AuthService(AppDbContext context, IJwtService jwt, IConfiguration c
         nombre = (nombre ?? "").Trim();
         email = (email ?? "").Trim().ToLowerInvariant();
 
+
         if (nombre.Length < 2)
             throw new GraphQLException("Escribe tu nombre.");
 
