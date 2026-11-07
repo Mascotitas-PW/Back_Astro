@@ -11,6 +11,7 @@ using back.GraphQL;
 using back.Payments;
 using back.Payments.PayPal;
 using back.Services;
+using back.Services.Pedidos;
 using back.Services.Auth;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -25,7 +26,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddSingleton<IImageService, ImageService>();
-
+builder.Services.AddScoped<PedidoService>();
 builder.Services.AddHttpClient<MercadoPagoPaymentService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(30);

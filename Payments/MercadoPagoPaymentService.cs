@@ -2,16 +2,18 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-
+using back.GraphQL;
+using back.Models;
+using back.Services.Pedidos;
 namespace back.Payments;
 
 public sealed class MercadoPagoPaymentService(
     HttpClient httpClient,
     IConfiguration configuration,
     AppDbContext context,
-    ILogger<MercadoPagoPaymentService> logger)
-{
-    public async Task<PaymentResult> ProcessAsync(ProcessOrderRequest request)
+    ILogger<MercadoPagoPaymentService> logger,
+    PedidoService pedidos)
+{    public async Task<PaymentResult> ProcessAsync(ProcessOrderRequest request)
     {
         var accessToken = configuration["MP_TOKEN"];
         if (string.IsNullOrWhiteSpace(accessToken))
@@ -245,5 +247,22 @@ public sealed class MercadoPagoPaymentService(
         {
             return (null, "La respuesta de Mercado Pago no tenía un formato JSON válido.");
         }
+    }
+    public Task<Pedido> CrearPedidoPagadoAsync(
+        int usuarioId, long paymentId, IReadOnlyList<ItemPedidoInput> items,
+        string? nombre, string? direccion, string? telefono)
+    {
+        return pedidos.CrearAsync(
+            new NuevoPedido(usuarioId, items, nombre, direccion, telefono, "Pendiente"),
+            async total =>
+            {
+                var esperados = items
+                    .GroupBy(i => i.ProductoId)
+                    .ToDictionary(g => g.Key, g => g.Sum(x => x.Cantidad));
+
+                if (!await IsApprovedForOrderAsync(paymentId, usuarioId, esperados, total))
+                    throw new PaymentRequestException(
+                        "El pago no está aprobado o no corresponde al importe del pedido.");
+            });
     }
 }

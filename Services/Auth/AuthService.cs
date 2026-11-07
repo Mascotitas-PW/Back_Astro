@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace back.Services.Auth;
 
-public class AuthService(AppDbContext context, IJwtService jwt) : IAuthService
+public class AuthService(AppDbContext context, IJwtService jwt, IConfiguration configuration) : IAuthService
 {
     public async Task<string> RegistrarAsync(string nombre, string email, string password)
     {

@@ -15,15 +15,16 @@ public record ProductoInput(
     int Stock,
     int CategoriaId
 );
-private static async Task Publicar(ITopicEventSender sender, string tipo, int productoId)
-{
-    try { await sender.SendAsync(Subscription.TopicProducto, new ProductoCambiado(tipo, productoId)); }
-    catch { }
-}
 
 [ExtendObjectType(typeof(Mutation))]
 public class ProductMutation
 {
+    private static async Task Publicar(ITopicEventSender sender, string tipo, int productoId)
+    {
+        try { await sender.SendAsync(Subscription.TopicProducto, new ProductoCambiado(tipo, productoId)); }
+        catch { }
+    }
+
     [Authorize(Roles = new[] { "Admin" })]
     public async Task<Producto> CrearProducto(
         ProductoInput input,
@@ -75,7 +76,8 @@ public class ProductMutation
     [Authorize(Roles = new[] { "Admin" })]
     public async Task<bool> EliminarProducto(
         int id,
-        [Service] AppDbContext context)
+        [Service] AppDbContext context,
+        [Service] ITopicEventSender sender)
     {
         var producto = await context.Productos.FirstOrDefaultAsync(p => p.Id == id)
             ?? throw new GraphQLException($"El producto {id} no existe.");
