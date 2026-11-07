@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -7,6 +7,7 @@
     <AllowMissingPrunePackageData>true</AllowMissingPrunePackageData>
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
     <AnalysisLevel>none</AnalysisLevel>
+    <UserSecretsId>18da4882-e1bf-4f97-b9b4-9247d50c4037</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
