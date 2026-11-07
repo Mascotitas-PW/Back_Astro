@@ -17,7 +17,7 @@ public static class PedidoAuth
         }
     }
 
-    
+
     public static List<ItemPedidoInput> ValidarItems(List<ItemPedidoInput>? items)
     {
         if (items == null || items.Count == 0)
@@ -39,7 +39,7 @@ public static class PedidoAuth
             .ToList();
     }
 
-    
+
     public static (string Nombre, string Direccion, string Telefono) ValidarDatosEntrega(
         string? nombreCompleto,
         string? direccionEntrega,

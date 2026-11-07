@@ -13,19 +13,19 @@ public class AppDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        
+
         modelBuilder.Entity<Pedido>(e =>
 {
-        e.ToTable("Pedido");
-        e.Property(p => p.Id).HasColumnName("Id");
-        e.Property(p => p.Fecha).HasColumnName("Fecha");
-        e.Property(p => p.Total).HasColumnName("Total");
-        e.Property(p => p.Status).HasColumnName("Status");
-        e.Property(p => p.UsuarioId).HasColumnName("UsuarioId");
-        e.Property(p => p.NombreCompleto).HasColumnName("NombreCompleto");
-        e.Property(p => p.DireccionEntrega).HasColumnName("DireccionEntrega");
-        e.Property(p => p.Telefono).HasColumnName("Telefono");                 
-        });
+    e.ToTable("Pedido");
+    e.Property(p => p.Id).HasColumnName("Id");
+    e.Property(p => p.Fecha).HasColumnName("Fecha");
+    e.Property(p => p.Total).HasColumnName("Total");
+    e.Property(p => p.Status).HasColumnName("Status");
+    e.Property(p => p.UsuarioId).HasColumnName("UsuarioId");
+    e.Property(p => p.NombreCompleto).HasColumnName("NombreCompleto");
+    e.Property(p => p.DireccionEntrega).HasColumnName("DireccionEntrega");
+    e.Property(p => p.Telefono).HasColumnName("Telefono");
+});
 
         modelBuilder.Entity<DetallePedido>(e =>
         {

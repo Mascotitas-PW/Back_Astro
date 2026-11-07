@@ -189,7 +189,7 @@ public class Query
             VentasPorCategoria = porCategoria
         };
     }
-     public class ProductoDto
+    public class ProductoDto
     {
         public int Id { get; set; }
         public string Nombre { get; set; } = string.Empty;

@@ -13,7 +13,8 @@ public sealed class MercadoPagoPaymentService(
     AppDbContext context,
     ILogger<MercadoPagoPaymentService> logger,
     PedidoService pedidos)
-{    public async Task<PaymentResult> ProcessAsync(ProcessOrderRequest request)
+{
+    public async Task<PaymentResult> ProcessAsync(ProcessOrderRequest request)
     {
         var accessToken = configuration["MP_TOKEN"];
         if (string.IsNullOrWhiteSpace(accessToken))
