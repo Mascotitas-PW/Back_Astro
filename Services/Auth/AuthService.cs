@@ -1,6 +1,7 @@
 using back.Models;
 using HotChocolate;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace back.Services.Auth;
 
@@ -71,9 +72,9 @@ public class AuthService(AppDbContext context, IJwtService jwt, IConfiguration c
         return usuario.Password.StartsWith("$2")
             ? BCrypt.Net.BCrypt.Verify(password, usuario.Password)
             : usuario.Password == password; // legado: texto plano
-
     }
-     public async Task<AuthPayload> LoginGoogleAsync(string idToken)
+
+    public async Task<AuthPayload> LoginGoogleAsync(string idToken)
     {
         var clientId = configuration["Google:ClientId"]
             ?? throw new InvalidOperationException("Falta Google:ClientId.");
