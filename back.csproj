@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
+    <PackageReference Include="CloudinaryDotNet" Version="1.29.3" />
     <PackageReference Include="Google.Apis.Auth" Version="1.78.0" />
     <PackageReference Include="HotChocolate.AspNetCore" Version="16.6.6" />
     <PackageReference Include="HotChocolate.AspNetCore.Authorization" Version="16.6.9" />

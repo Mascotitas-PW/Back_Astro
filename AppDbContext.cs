@@ -10,6 +10,8 @@ public class AppDbContext : DbContext
     public DbSet<Producto> Productos => Set<Producto>();
     public DbSet<Pedido> Pedidos => Set<Pedido>();
     public DbSet<DetallePedido> DetallePedidos => Set<DetallePedido>();
+    public DbSet<Domicilio> Domicilios => Set<Domicilio>();
+    public DbSet<AceptacionLegal> AceptacionesLegales => Set<AceptacionLegal>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -36,6 +38,9 @@ public class AppDbContext : DbContext
             e.Property(d => d.Cantidad).HasColumnName("Cantidad");
             e.Property(d => d.PrecioUnitario).HasColumnName("PrecioUnitario");
         });
+
+        modelBuilder.Entity<Domicilio>().ToTable("Domicilio");
+        modelBuilder.Entity<AceptacionLegal>().ToTable("AceptacionLegal");
 
         modelBuilder.Entity<Categoria>().HasData(
             new Categoria { Id = 1, Nombre = "Alimentos" },

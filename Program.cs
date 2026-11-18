@@ -25,7 +25,10 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddSingleton<IImageService, ImageService>();
+if (!string.IsNullOrWhiteSpace(builder.Configuration["CLOUDINARY_URL"]))
+    builder.Services.AddSingleton<IImageService, CloudinaryImageService>();
+else
+    builder.Services.AddSingleton<IImageService, ImageService>();
 builder.Services.AddScoped<PedidoService>();
 builder.Services.AddHttpClient<MercadoPagoPaymentService>(client =>
 {
@@ -96,6 +99,8 @@ builder.Services
     .AddMutationType<Mutation>()
     .AddTypeExtension<ProductMutation>()
     .AddTypeExtension<PedidoMutation>()
+    .AddTypeExtension<DomicilioMutation>()
+    .AddTypeExtension<DomicilioQueries>()
     .AddSubscriptionType<Subscription>()
     .AddInMemorySubscriptions()
     .AddFiltering()
@@ -144,7 +149,9 @@ app.MapPost("/api/imagenes", async (
 
         return Results.Ok(new
         {
-            url = $"{http.Request.Scheme}://{http.Request.Host}/images/{nombre}",
+            url = nombre.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                ? nombre
+                : $"{http.Request.Scheme}://{http.Request.Host}/images/{nombre}",
             nombre
         });
     }
@@ -203,10 +210,33 @@ using (var scope = app.Services.CreateScope())
             "ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"Latitud\" double precision NULL");
         await db.Database.ExecuteSqlRawAsync(
             "ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"Longitud\" double precision NULL");
+
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS "Domicilio" (
+                "Id" serial PRIMARY KEY,
+                "UsuarioId" integer NOT NULL,
+                "Alias" text NOT NULL,
+                "NombreCompleto" text NOT NULL,
+                "Telefono" text NOT NULL,
+                "Direccion" text NOT NULL,
+                "CodigoPostal" text NULL,
+                "Latitud" double precision NULL,
+                "Longitud" double precision NULL,
+                "Predeterminado" boolean NOT NULL DEFAULT false)
+            """);
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE INDEX IF NOT EXISTS \"IX_Domicilio_UsuarioId\" ON \"Domicilio\" (\"UsuarioId\")");
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS "AceptacionLegal" (
+                "Id" serial PRIMARY KEY,
+                "UsuarioId" integer NOT NULL,
+                "Version" text NOT NULL,
+                "Fecha" timestamp with time zone NOT NULL)
+            """);
     }
     catch (Exception ex)
     {
-        log.LogError(ex, "No se pudieron crear las columnas Latitud/Longitud.");
+        log.LogError(ex, "No se pudo preparar la base de datos (columnas/tablas nuevas).");
     }
 }
 
