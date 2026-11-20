@@ -27,6 +27,7 @@ public class Query
                 Precio = p.Precio,
                 Imagen = p.Imagen,
                 Stock = p.Stock,
+                PesoKg = p.PesoKg,
                 CategoriaId = p.CategoriaId,
                 Categoria = p.Categoria != null
                     ? p.Categoria.Nombre
@@ -207,5 +208,7 @@ public class Query
         public int Stock { get; set; }
         public int CategoriaId { get; set; }
         public string Categoria { get; set; } = string.Empty;
+        public decimal? PesoKg { get; set; }
+
     }
 }
