@@ -30,6 +30,14 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["CLOUDINARY_URL"]))
 else
     builder.Services.AddSingleton<IImageService, ImageService>();
 builder.Services.AddScoped<PedidoService>();
+<<<<<<< HEAD
+=======
+builder.Services.AddMemoryCache();
+builder.Services.AddHttpClient<SkydropxClient>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+>>>>>>> 95a2c0e (envios)
 builder.Services.AddHttpClient<MercadoPagoPaymentService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(30);
@@ -170,6 +178,10 @@ app.MapPost("/api/imagenes", async (
 
 app.MapProcessOrder();
 app.MapPayPal();
+<<<<<<< HEAD
+=======
+app.MapEnvios();
+>>>>>>> 95a2c0e (envios)
 
 
 app.MapPost("/webhook/mercadopago", async (
@@ -210,6 +222,37 @@ using (var scope = app.Services.CreateScope())
             "ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"Latitud\" double precision NULL");
         await db.Database.ExecuteSqlRawAsync(
             "ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"Longitud\" double precision NULL");
+<<<<<<< HEAD
+=======
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Producto\" ADD COLUMN IF NOT EXISTS \"PesoKg\" numeric NULL");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"CodigoPostalEntrega\" text NULL");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"EstadoEntrega\" text NULL");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"CiudadEntrega\" text NULL");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"ColoniaEntrega\" text NULL");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"CotizacionEnvioId\" uuid NULL");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"SkydropxRateId\" text NULL");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"Paqueteria\" text NULL");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"ServicioEnvio\" text NULL");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"CostoEnvio\" numeric NULL");
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS "CotizacionEnvio" (
+                "Id" uuid PRIMARY KEY,
+                "UsuarioId" integer NOT NULL,
+                "SkydropxId" text NOT NULL,
+                "CodigoPostal" text NOT NULL,
+                "Estado" text NOT NULL,
+                "Ciudad" text NOT NULL,
+                "Colonia" text NOT NULL,
+                "TarifasJson" text NOT NULL,
+                "CreadaUtc" timestamp with time zone NOT NULL,
+                "VenceUtc" timestamp with time zone NOT NULL)
+            """);
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"CotizacionEnvio\" ADD COLUMN IF NOT EXISTS \"CodigoPostal\" text NOT NULL DEFAULT ''");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"CotizacionEnvio\" ADD COLUMN IF NOT EXISTS \"Estado\" text NOT NULL DEFAULT ''");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"CotizacionEnvio\" ADD COLUMN IF NOT EXISTS \"Ciudad\" text NOT NULL DEFAULT ''");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"CotizacionEnvio\" ADD COLUMN IF NOT EXISTS \"Colonia\" text NOT NULL DEFAULT ''");
+        await db.Database.ExecuteSqlRawAsync("CREATE INDEX IF NOT EXISTS \"IX_CotizacionEnvio_UsuarioId\" ON \"CotizacionEnvio\" (\"UsuarioId\")");
+>>>>>>> 95a2c0e (envios)
 
         await db.Database.ExecuteSqlRawAsync("""
             CREATE TABLE IF NOT EXISTS "Domicilio" (
@@ -224,6 +267,12 @@ using (var scope = app.Services.CreateScope())
                 "Longitud" double precision NULL,
                 "Predeterminado" boolean NOT NULL DEFAULT false)
             """);
+<<<<<<< HEAD
+=======
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Domicilio\" ADD COLUMN IF NOT EXISTS \"Estado\" text NULL");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Domicilio\" ADD COLUMN IF NOT EXISTS \"Ciudad\" text NULL");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Domicilio\" ADD COLUMN IF NOT EXISTS \"Colonia\" text NULL");
+>>>>>>> 95a2c0e (envios)
         await db.Database.ExecuteSqlRawAsync(
             "CREATE INDEX IF NOT EXISTS \"IX_Domicilio_UsuarioId\" ON \"Domicilio\" (\"UsuarioId\")");
         await db.Database.ExecuteSqlRawAsync("""

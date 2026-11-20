@@ -143,7 +143,17 @@ public sealed class PayPalPaymentService(
                 request.Telefono,
                 "Pagado (PayPal)",
                 request.Latitud,
+<<<<<<< HEAD
                 request.Longitud),
+=======
+                request.Longitud,
+                request.CotizacionEnvioId,
+                request.RateId,
+                request.CodigoPostal,
+                request.Estado,
+                request.Ciudad,
+                request.Colonia),
+>>>>>>> 95a2c0e (envios)
             async _ => { capture = await CaptureOrderAsync(orderId, request, cancellationToken); },
             cancellationToken);
 
@@ -199,7 +209,12 @@ public sealed class PayPalPaymentService(
     private Task<decimal> CalculateAmountAsync(
         PayPalCreateOrderRequest request,
         CancellationToken cancellationToken) =>
+<<<<<<< HEAD
         pedidos.CalcularTotalAsync(request.UsuarioId, ToItems(request.Items), cancellationToken);
+=======
+        pedidos.CalcularTotalAsync(
+            request.UsuarioId, ToItems(request.Items), request.CotizacionEnvioId, request.RateId, cancellationToken);
+>>>>>>> 95a2c0e (envios)
 
     private static List<ItemPedidoInput>? ToItems(List<PayPalOrderItem>? items) =>
         items?.Select(i => new ItemPedidoInput(i.ProductoId, i.Cantidad)).ToList();

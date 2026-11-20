@@ -8,7 +8,13 @@ public sealed record ProcessOrderRequest(
     int UsuarioId,
     List<ProcessOrderItem>? Items,
     JsonElement? IssuerId,
+<<<<<<< HEAD
     PaymentPayer? Payer);
+=======
+    PaymentPayer? Payer,
+    Guid? CotizacionEnvioId = null,
+    string? RateId = null);
+>>>>>>> 95a2c0e (envios)
 
 public sealed record ProcessOrderItem(int ProductoId, int Cantidad);
 

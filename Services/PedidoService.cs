@@ -14,7 +14,17 @@ public sealed record NuevoPedido(
     string? Telefono,
     string Status,
     double? Latitud = null,
+<<<<<<< HEAD
     double? Longitud = null);
+=======
+    double? Longitud = null,
+    Guid? CotizacionEnvioId = null,
+    string? RateId = null,
+    string? CodigoPostal = null,
+    string? Estado = null,
+    string? Ciudad = null,
+    string? Colonia = null);
+>>>>>>> 95a2c0e (envios)
 
 // Único lugar donde se crea un pedido (Mercado Pago, PayPal y pagos fuera de línea).
 // Lanza PaymentRequestException ante datos inválidos; quien lo llame decide cómo mostrarlo.
@@ -24,10 +34,20 @@ public sealed class PedidoService(AppDbContext context, ITopicEventSender sender
     public async Task<decimal> CalcularTotalAsync(
         int usuarioId,
         IEnumerable<ItemPedidoInput>? items,
+<<<<<<< HEAD
         CancellationToken ct = default)
     {
         var (_, _, total) = await PrepararAsync(usuarioId, items, ct);
         return total;
+=======
+        Guid? cotizacionEnvioId,
+        string? rateId,
+        CancellationToken ct = default)
+    {
+        var (_, _, subtotal) = await PrepararAsync(usuarioId, items, ct);
+        var tarifa = await ObtenerTarifaAsync(usuarioId, cotizacionEnvioId, rateId, null, ct);
+        return decimal.Round(subtotal + tarifa.Importe, 2, MidpointRounding.AwayFromZero);
+>>>>>>> 95a2c0e (envios)
     }
 
     // verificarPago se ejecuta con el total ya calculado y ANTES de guardar nada:
@@ -37,10 +57,20 @@ public sealed class PedidoService(AppDbContext context, ITopicEventSender sender
         Func<decimal, Task>? verificarPago = null,
         CancellationToken ct = default)
     {
+<<<<<<< HEAD
         var (nombre, direccion, telefono) = ValidarEntrega(
             datos.NombreCompleto, datos.DireccionEntrega, datos.Telefono);
 
         var (items, productos, total) = await PrepararAsync(datos.UsuarioId, datos.Items, ct);
+=======
+        var (nombre, direccion, telefono) = ValidarEntrega(datos);
+
+        var (items, productos, subtotal) = await PrepararAsync(datos.UsuarioId, datos.Items, ct);
+        var tarifa = await ObtenerTarifaAsync(
+            datos.UsuarioId, datos.CotizacionEnvioId, datos.RateId,
+            new DireccionCotizacion(datos.CodigoPostal!, datos.Estado!, datos.Ciudad!, datos.Colonia!), ct);
+        var total = decimal.Round(subtotal + tarifa.Importe, 2, MidpointRounding.AwayFromZero);
+>>>>>>> 95a2c0e (envios)
 
         if (verificarPago is not null)
             await verificarPago(total);
@@ -70,10 +100,26 @@ public sealed class PedidoService(AppDbContext context, ITopicEventSender sender
                 UsuarioId = datos.UsuarioId,
                 NombreCompleto = nombre,
                 DireccionEntrega = direccion,
+<<<<<<< HEAD
                 Telefono = telefono,
                 Total = (float)total,
                 Latitud = ubicacion.Lat,
                 Longitud = ubicacion.Lng
+=======
+                CodigoPostalEntrega = datos.CodigoPostal,
+                EstadoEntrega = datos.Estado,
+                CiudadEntrega = datos.Ciudad,
+                ColoniaEntrega = datos.Colonia,
+                Telefono = telefono,
+                Total = (float)total,
+                Latitud = ubicacion.Lat,
+                Longitud = ubicacion.Lng,
+                CotizacionEnvioId = datos.CotizacionEnvioId,
+                SkydropxRateId = tarifa.Id,
+                Paqueteria = tarifa.Paqueteria,
+                ServicioEnvio = tarifa.Servicio,
+                CostoEnvio = tarifa.Importe
+>>>>>>> 95a2c0e (envios)
             };
 
             context.Pedidos.Add(pedido);
@@ -96,7 +142,11 @@ public sealed class PedidoService(AppDbContext context, ITopicEventSender sender
         }
     }
 
+<<<<<<< HEAD
     private async Task<(List<ItemPedidoInput> Items, Dictionary<int, Producto> Productos, decimal Total)> PrepararAsync(
+=======
+    private async Task<(List<ItemPedidoInput> Items, Dictionary<int, Producto> Productos, decimal Subtotal)> PrepararAsync(
+>>>>>>> 95a2c0e (envios)
         int usuarioId,
         IEnumerable<ItemPedidoInput>? items,
         CancellationToken ct)
@@ -123,8 +173,38 @@ public sealed class PedidoService(AppDbContext context, ITopicEventSender sender
             subtotal += producto.Precio * item.Cantidad;
         }
 
+<<<<<<< HEAD
         var total = decimal.Round(subtotal + Envio.Calcular(subtotal), 2, MidpointRounding.AwayFromZero);
         return (normalizados, productos, total);
+=======
+        return (normalizados, productos, subtotal);
+    }
+
+    public async Task<TarifaEnvio> ObtenerTarifaAsync(
+        int usuarioId,
+        Guid? cotizacionEnvioId,
+        string? rateId,
+        DireccionCotizacion? destino,
+        CancellationToken ct = default)
+    {
+        if (cotizacionEnvioId is null || string.IsNullOrWhiteSpace(rateId))
+            throw new PaymentRequestException("Primero cotiza el envío y selecciona una paquetería.");
+
+        var quote = await context.CotizacionesEnvio.SingleOrDefaultAsync(
+            q => q.Id == cotizacionEnvioId && q.UsuarioId == usuarioId, ct);
+        if (quote is null || quote.VenceUtc <= DateTime.UtcNow)
+            throw new PaymentRequestException("La cotización no existe o venció. Vuelve a cotizar el envío.");
+
+        if (destino is not null &&
+            (quote.CodigoPostal != destino.CodigoPostal || quote.Estado != destino.Estado ||
+             quote.Ciudad != destino.Ciudad || quote.Colonia != destino.Colonia))
+            throw new PaymentRequestException("La dirección cambió. Vuelve a cotizar el envío.");
+
+        var rates = System.Text.Json.JsonSerializer.Deserialize<List<TarifaEnvio>>(
+            quote.TarifasJson, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)) ?? [];
+        return rates.FirstOrDefault(rate => rate.Id == rateId && rate.Moneda == "MXN")
+            ?? throw new PaymentRequestException("La tarifa elegida no pertenece a esta cotización.");
+>>>>>>> 95a2c0e (envios)
     }
 
     // Solo guarda coordenadas válidas (ambas presentes y dentro de rango).
@@ -149,12 +229,20 @@ public sealed class PedidoService(AppDbContext context, ITopicEventSender sender
     }
 
     // Misma regla que el front: nombre, dirección y teléfono de 10 dígitos.
+<<<<<<< HEAD
     private static (string Nombre, string Direccion, string Telefono) ValidarEntrega(
         string? nombreCompleto, string? direccionEntrega, string? telefono)
     {
         var nombre = (nombreCompleto ?? "").Trim();
         var direccion = (direccionEntrega ?? "").Trim();
         var tel = new string((telefono ?? "").Where(char.IsDigit).ToArray());
+=======
+    private static (string Nombre, string Direccion, string Telefono) ValidarEntrega(NuevoPedido datos)
+    {
+        var nombre = (datos.NombreCompleto ?? "").Trim();
+        var direccion = (datos.DireccionEntrega ?? "").Trim();
+        var tel = new string((datos.Telefono ?? "").Where(char.IsDigit).ToArray());
+>>>>>>> 95a2c0e (envios)
 
         if (nombre.Length < 3)
             throw new PaymentRequestException("Escribe tu nombre completo.");
@@ -162,6 +250,13 @@ public sealed class PedidoService(AppDbContext context, ITopicEventSender sender
             throw new PaymentRequestException("Escribe una dirección de entrega válida.");
         if (tel.Length != 10)
             throw new PaymentRequestException("El teléfono debe tener 10 dígitos.");
+<<<<<<< HEAD
+=======
+        if (new string((datos.CodigoPostal ?? "").Where(char.IsDigit).ToArray()).Length != 5 ||
+            string.IsNullOrWhiteSpace(datos.Estado) || string.IsNullOrWhiteSpace(datos.Ciudad) ||
+            string.IsNullOrWhiteSpace(datos.Colonia))
+            throw new PaymentRequestException("Completa el código postal, estado, ciudad y colonia.");
+>>>>>>> 95a2c0e (envios)
 
         return (nombre, direccion, tel);
     }

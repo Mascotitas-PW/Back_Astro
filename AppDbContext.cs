@@ -11,6 +11,10 @@ public class AppDbContext : DbContext
     public DbSet<Pedido> Pedidos => Set<Pedido>();
     public DbSet<DetallePedido> DetallePedidos => Set<DetallePedido>();
     public DbSet<Domicilio> Domicilios => Set<Domicilio>();
+<<<<<<< HEAD
+=======
+    public DbSet<CotizacionEnvio> CotizacionesEnvio => Set<CotizacionEnvio>();
+>>>>>>> 95a2c0e (envios)
     public DbSet<AceptacionLegal> AceptacionesLegales => Set<AceptacionLegal>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -40,6 +44,10 @@ public class AppDbContext : DbContext
         });
 
         modelBuilder.Entity<Domicilio>().ToTable("Domicilio");
+<<<<<<< HEAD
+=======
+        modelBuilder.Entity<CotizacionEnvio>().ToTable("CotizacionEnvio");
+>>>>>>> 95a2c0e (envios)
         modelBuilder.Entity<AceptacionLegal>().ToTable("AceptacionLegal");
 
         modelBuilder.Entity<Categoria>().HasData(
