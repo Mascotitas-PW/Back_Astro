@@ -25,6 +25,8 @@ public static class EnvioEndpoint
             AppDbContext context,
             SkydropxClient skydropx,
             IConfiguration configuration,
+            MexicoPostalService postalService,
+            ILogger<SkydropxClient> logger,
             CancellationToken cancellationToken) =>
         {
             if (!int.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var usuarioId) || usuarioId < 1)
@@ -40,24 +42,28 @@ public static class EnvioEndpoint
                 items is null || items.Count == 0 || items.Any(item => item.ProductoId < 1 || item.Cantidad < 1))
                 return Results.BadRequest(new { message = "Completa el código postal, estado, ciudad, colonia y carrito." });
 
-            var ids = items.Select(item => item.ProductoId).ToList();
-            var productos = await context.Productos.Where(product => ids.Contains(product.Id)).ToDictionaryAsync(product => product.Id, cancellationToken);
-            decimal pesoKg = configuration.GetValue<decimal>("Skydropx:Parcel:TareWeightKg");
-            foreach (var item in items)
-            {
-                if (!productos.TryGetValue(item.ProductoId, out var producto))
-                    return Results.BadRequest(new { message = $"El producto {item.ProductoId} no existe." });
-                if (producto.PesoKg is null or <= 0)
-                    return Results.BadRequest(new { message = $"Configura el peso de '{producto.Nombre}' antes de cotizar." });
-                pesoKg += producto.PesoKg.Value * item.Cantidad;
-            }
-
-            if (pesoKg <= 0)
-                return Results.BadRequest(new { message = "El peso del paquete debe ser mayor a cero." });
-            pesoKg = Math.Max(1m, pesoKg);
-
             try
             {
+                var codigoPostal = await postalService.BuscarAsync(cp, cancellationToken);
+                if (codigoPostal is null)
+                    return Results.NotFound(new { message = "Código postal no encontrado." });
+
+                var ids = items.Select(item => item.ProductoId).ToList();
+                var productos = await context.Productos.Where(product => ids.Contains(product.Id)).ToDictionaryAsync(product => product.Id, cancellationToken);
+                decimal pesoKg = configuration.GetValue<decimal>("Skydropx:Parcel:TareWeightKg");
+                foreach (var item in items)
+                {
+                    if (!productos.TryGetValue(item.ProductoId, out var producto))
+                        return Results.BadRequest(new { message = $"El producto {item.ProductoId} no existe." });
+                    if (producto.PesoKg is null or <= 0)
+                        return Results.BadRequest(new { message = $"Configura el peso de '{producto.Nombre}' antes de cotizar." });
+                    pesoKg += producto.PesoKg.Value * item.Cantidad;
+                }
+
+                if (pesoKg <= 0)
+                    return Results.BadRequest(new { message = "El peso del paquete debe ser mayor a cero." });
+                pesoKg = Math.Max(1m, pesoKg);
+
                 var resultado = await skydropx.CotizarAsync(
                     new DireccionCotizacion(cp, estado, ciudad, colonia), pesoKg, cancellationToken);
                 var ahora = DateTime.UtcNow;
@@ -79,17 +85,37 @@ public static class EnvioEndpoint
 
                 return Results.Ok(new CotizacionResponse(cotizacion.Id, resultado.Tarifas, cotizacion.VenceUtc));
             }
+            catch (SkydropxConfigurationException)
+            {
+                return Results.Json(new { message = "El servicio de envíos no está configurado correctamente." }, statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+            catch (SkydropxProviderException ex)
+            {
+                return Results.Json(new { message = ex.Message }, statusCode: ex.StatusCode);
+            }
             catch (TimeoutException ex)
             {
                 return Results.Json(new { message = ex.Message }, statusCode: StatusCodes.Status504GatewayTimeout);
             }
             catch (InvalidOperationException ex)
             {
-                return Results.BadRequest(new { message = ex.Message });
+                return Results.Json(new { message = ex.Message }, statusCode: StatusCodes.Status503ServiceUnavailable);
             }
             catch (HttpRequestException)
             {
-                return Results.Problem("No se pudo conectar con Skydropx Sandbox.", statusCode: StatusCodes.Status502BadGateway);
+                return Results.Json(new { message = "No se pudo conectar con el proveedor de envíos." }, statusCode: StatusCodes.Status502BadGateway);
+            }
+            catch (Microsoft.EntityFrameworkCore.DbUpdateException)
+            {
+                return Results.Json(new { message = "No se pudo guardar la cotización." }, statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+            catch (JsonException)
+            {
+                return Results.Json(new { message = "El proveedor de envíos devolvió una respuesta inválida." }, statusCode: StatusCodes.Status502BadGateway);
+            }
+            catch (Exception)
+            {
+                return Results.Json(new { message = "Ocurrió un error inesperado al cotizar el envío." }, statusCode: StatusCodes.Status500InternalServerError);
             }
         }).RequireAuthorization();
     }

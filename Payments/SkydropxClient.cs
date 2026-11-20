@@ -25,10 +25,11 @@ public sealed class SkydropxClient(
     {
         var baseUrl = configuration["Skydropx:BaseUrl"];
         if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var apiBase))
-            throw new InvalidOperationException("Configura Skydropx:BaseUrl con el host Sandbox de tu cuenta.");
+            throw new SkydropxConfigurationException("Configura Skydropx:BaseUrl con el host Sandbox de tu cuenta.");
 
         httpClient.BaseAddress = apiBase;
         var token = await ObtenerTokenAsync(cancellationToken);
+
         var origin = configuration.GetSection("Skydropx:Origin");
         var parcel = configuration.GetSection("Skydropx:Parcel");
         var length = parcel.GetValue<decimal>("LengthCm");
@@ -36,12 +37,12 @@ public sealed class SkydropxClient(
         var height = parcel.GetValue<decimal>("HeightCm");
 
         if (length <= 0 || width <= 0 || height <= 0)
-            throw new InvalidOperationException("Configura largo, ancho y alto positivos en Skydropx:Parcel.");
+            throw new SkydropxConfigurationException("Configura largo, ancho y alto positivos en Skydropx:Parcel.");
         if (string.IsNullOrWhiteSpace(origin["PostalCode"]) ||
             string.IsNullOrWhiteSpace(origin["State"]) ||
             string.IsNullOrWhiteSpace(origin["City"]) ||
             string.IsNullOrWhiteSpace(origin["Neighborhood"]))
-            throw new InvalidOperationException("Configura el código postal, estado, ciudad y colonia de origen en Skydropx:Origin.");
+            throw new SkydropxConfigurationException("Configura el código postal, estado, ciudad y colonia de origen en Skydropx:Origin.");
 
         var payload = new
         {
@@ -83,7 +84,7 @@ public sealed class SkydropxClient(
             await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
         var quotationId = LeerTexto(created.RootElement, "id");
         if (string.IsNullOrWhiteSpace(quotationId))
-            throw new InvalidOperationException("Skydropx no devolvió el identificador de cotización.");
+            throw new SkydropxProviderException("Skydropx no devolvió el identificador de cotización.");
 
         for (var attempt = 0; attempt < 12; attempt++)
         {
@@ -117,7 +118,7 @@ public sealed class SkydropxClient(
         var clientId = configuration["Skydropx:ClientId"];
         var clientSecret = configuration["Skydropx:ClientSecret"];
         if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
-            throw new InvalidOperationException("Configura Skydropx:ClientId y Skydropx:ClientSecret como secretos del backend.");
+            throw new SkydropxConfigurationException("Configura Skydropx:ClientId y Skydropx:ClientSecret como secretos del backend.");
 
         var form = new FormUrlEncodedContent(new Dictionary<string, string>
         {
@@ -137,7 +138,7 @@ public sealed class SkydropxClient(
             await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
         var accessToken = LeerTexto(body.RootElement, "access_token");
         if (string.IsNullOrWhiteSpace(accessToken))
-            throw new InvalidOperationException("Skydropx no devolvió un bearer token.");
+            throw new SkydropxProviderException("Skydropx no devolvió un bearer token.");
 
         var expiresIn = body.RootElement.TryGetProperty("expires_in", out var expires) &&
                         expires.TryGetInt32(out var seconds) ? seconds : 7200;
@@ -212,13 +213,29 @@ public sealed class SkydropxClient(
         }
     }
 
-    private async Task<InvalidOperationException> CrearErrorAsync(
+    private async Task<SkydropxProviderException> CrearErrorAsync(
         HttpResponseMessage response,
         string fallback,
         CancellationToken cancellationToken)
     {
         var details = await response.Content.ReadAsStringAsync(cancellationToken);
         logger.LogWarning("Skydropx respondió HTTP {StatusCode}: {Details}", (int)response.StatusCode, details);
-        return new InvalidOperationException(fallback);
+
+        var statusCode = (int)response.StatusCode >= 500
+            ? 502
+            : (int)response.StatusCode == 401 || (int)response.StatusCode == 403
+                ? 503
+                : 502;
+
+        return new SkydropxProviderException(fallback, statusCode);
     }
 }
+
+public sealed class SkydropxProviderException(string message, int statusCode = 502)
+    : Exception(message)
+{
+    public int StatusCode { get; } = statusCode;
+}
+
+public sealed class SkydropxConfigurationException(string message)
+    : Exception(message);

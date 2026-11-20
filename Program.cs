@@ -95,7 +95,9 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowReact", policy =>
     {
         policy
-            .AllowAnyOrigin()
+            .WithOrigins(
+                "http://localhost:4321",
+                "https://mascotitas-pw.github.io")
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
@@ -126,7 +128,26 @@ var app = builder.Build();
 
 
 app.UseResponseCompression();
+
 app.UseCors("AllowReact");
+
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var exceptionFeature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        if (exceptionFeature?.Error is not null)
+            logger.LogError(exceptionFeature.Error, "Error inesperado procesando {Method} {Path}", context.Request.Method, context.Request.Path);
+
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new
+        {
+            message = "Ocurrió un error inesperado. Inténtalo nuevamente."
+        });
+    });
+});
 
 app.UseAuthentication();
 app.UseAuthorization();

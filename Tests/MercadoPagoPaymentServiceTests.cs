@@ -3,11 +3,18 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using back.Models;
+using back.Payments;
+using back.Services.Pedidos;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 public class MercadoPagoPaymentServiceTests
 {
+    private static readonly Guid CotizacionId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    private const string RateId = "rate-test";
+
     [Fact]
     public async Task ProcessAsync_WhenPaymentIsApproved_UsesServerCalculatedAmountAndReturnsApproved()
     {
@@ -33,15 +40,15 @@ public class MercadoPagoPaymentServiceTests
             Items: [new ProcessOrderItem(1, 2)],
             IssuerId: null,
             Payer: null,
-            Email: "cliente@test.com",
-            TransactionAmount: 999m);
+            CotizacionEnvioId: null,
+            RateId: null);
 
         var result = await service.ProcessAsync(request);
 
         Assert.Equal("approved", result.Status);
         Assert.Equal(987654321, result.Id);
-        Assert.Equal("tok_test_123", handler.LastRequestBody? ["token"]?.GetString());
-        Assert.Equal(350m, handler.LastRequestBody?["transaction_amount"]?.GetDecimal());
+        Assert.Equal("tok_test_123", handler.LastRequestBody?.RootElement.GetProperty("token").GetString());
+        Assert.Equal(350m, handler.LastRequestBody?.RootElement.GetProperty("transaction_amount").GetDecimal());
     }
 
     [Fact]
@@ -68,8 +75,8 @@ public class MercadoPagoPaymentServiceTests
             Items: [new ProcessOrderItem(1, 1)],
             IssuerId: null,
             Payer: null,
-            Email: "cliente@test.com",
-            TransactionAmount: 100m);
+            CotizacionEnvioId: null,
+            RateId: null);
 
         var result = await service.ProcessAsync(request);
 
@@ -90,8 +97,8 @@ public class MercadoPagoPaymentServiceTests
             Items: [new ProcessOrderItem(999, 1)],
             IssuerId: null,
             Payer: null,
-            Email: "cliente@test.com",
-            TransactionAmount: 100m);
+            CotizacionEnvioId: null,
+            RateId: null);
 
         await Assert.ThrowsAsync<PaymentRequestException>(() => service.ProcessAsync(request));
     }
@@ -119,8 +126,8 @@ public class MercadoPagoPaymentServiceTests
             Items: [new ProcessOrderItem(1, 1)],
             IssuerId: null,
             Payer: null,
-            Email: "cliente@test.com",
-            TransactionAmount: 100m);
+            CotizacionEnvioId: null,
+            RateId: null);
 
         var result = await service.ProcessAsync(request);
 
@@ -152,6 +159,29 @@ public class MercadoPagoPaymentServiceTests
             CategoriaId = 1,
             Imagen = "croquetas.png"
         });
+        context.Cotizaciones.Add(new Cotizacion
+        {
+            Id = CotizacionId,
+            UsuarioId = 1,
+            ProductoId = 1,
+            FechaCreacion = DateTime.UtcNow,
+            FechaExpiracion = DateTime.UtcNow.AddDays(1),
+            Precio = 350.00m,
+            Activa = true
+        });
+        context.CotizacionesEnvio.Add(new CotizacionEnvio
+        {
+            Id = CotizacionId,
+            UsuarioId = 1,
+            SkydropxId = "quotation-test",
+            CodigoPostal = "44820",
+            Estado = "Jalisco",
+            Ciudad = "Guadalajara",
+            Colonia = "Figueroa",
+            TarifasJson = "[{\"id\":\"rate-test\",\"paqueteria\":\"Test\",\"servicio\":\"Standard\",\"importe\":99.00,\"moneda\":\"MXN\",\"diasEntrega\":3}]",
+            CreadaUtc = DateTime.UtcNow,
+            VenceUtc = DateTime.UtcNow.AddHours(24)
+        });
         context.SaveChanges();
         return context;
     }
@@ -167,7 +197,13 @@ public class MercadoPagoPaymentServiceTests
             .Build();
 
         var loggerFactory = LoggerFactory.Create(builder => builder.AddDebug());
-        return new MercadoPagoPaymentService(new HttpClient(handler), configuration, context, loggerFactory.CreateLogger<MercadoPagoPaymentService>());
+        var pedidoService = new PedidoService(context, null!);
+        return new MercadoPagoPaymentService(
+            new HttpClient(handler),
+            configuration,
+            context,
+            loggerFactory.CreateLogger<MercadoPagoPaymentService>(),
+            pedidoService);
     }
 
     private sealed class StubHttpMessageHandler(HttpResponseMessage response) : HttpMessageHandler
