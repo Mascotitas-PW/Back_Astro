@@ -16,12 +16,9 @@ public record DomicilioInput(
     string Telefono,
     string Direccion,
     string? CodigoPostal,
-<<<<<<< HEAD
-=======
     string? Estado,
     string? Ciudad,
     string? Colonia,
->>>>>>> 95a2c0e (envios)
     double? Latitud,
     double? Longitud,
     bool Predeterminado
@@ -76,12 +73,9 @@ public class DomicilioMutation
         var direccion = (input.Direccion ?? "").Trim();
         var telefono = new string((input.Telefono ?? "").Where(char.IsDigit).ToArray());
         var cp = new string((input.CodigoPostal ?? "").Where(char.IsDigit).ToArray());
-<<<<<<< HEAD
-=======
         var estado = (input.Estado ?? "").Trim();
         var ciudad = (input.Ciudad ?? "").Trim();
         var colonia = (input.Colonia ?? "").Trim();
->>>>>>> 95a2c0e (envios)
 
         if (alias.Length is < 1 or > 40) throw new GraphQLException("Escribe un nombre para el domicilio (máx. 40 caracteres).");
         if (nombre.Length < 3) throw new GraphQLException("Escribe el nombre completo.");
@@ -112,12 +106,9 @@ public class DomicilioMutation
         domicilio.Telefono = telefono;
         domicilio.Direccion = direccion;
         domicilio.CodigoPostal = cp.Length == 0 ? null : cp;
-<<<<<<< HEAD
-=======
         domicilio.Estado = estado.Length == 0 ? null : estado;
         domicilio.Ciudad = ciudad.Length == 0 ? null : ciudad;
         domicilio.Colonia = colonia.Length == 0 ? null : colonia;
->>>>>>> 95a2c0e (envios)
         domicilio.Latitud = lat;
         domicilio.Longitud = lng;
 

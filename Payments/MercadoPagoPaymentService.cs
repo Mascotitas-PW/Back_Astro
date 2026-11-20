@@ -58,13 +58,9 @@ public sealed class MercadoPagoPaymentService(
             amount += product.Precio * item.Cantidad;
         }
 
-<<<<<<< HEAD
-        amount += Envio.Calcular(amount); // el cobro incluye el envío
-=======
         var tarifaEnvio = await pedidos.ObtenerTarifaAsync(
             request.UsuarioId, request.CotizacionEnvioId, request.RateId, null);
         amount += tarifaEnvio.Importe;
->>>>>>> 95a2c0e (envios)
         amount = decimal.Round(amount, 2, MidpointRounding.AwayFromZero);
         var currency = configuration["MERCADOPAGO_CURRENCY"] ?? "MXN";
 
@@ -258,12 +254,6 @@ public sealed class MercadoPagoPaymentService(
     public Task<Pedido> CrearPedidoPagadoAsync(
         int usuarioId, long paymentId, IReadOnlyList<ItemPedidoInput> items,
         string? nombre, string? direccion, string? telefono,
-<<<<<<< HEAD
-        double? latitud = null, double? longitud = null)
-    {
-        return pedidos.CrearAsync(
-            new NuevoPedido(usuarioId, items, nombre, direccion, telefono, "Pagado (Mercado Pago)", latitud, longitud),
-=======
         double? latitud = null, double? longitud = null,
         Guid? cotizacionEnvioId = null, string? rateId = null,
         string? codigoPostal = null, string? estado = null,
@@ -272,7 +262,6 @@ public sealed class MercadoPagoPaymentService(
         return pedidos.CrearAsync(
             new NuevoPedido(usuarioId, items, nombre, direccion, telefono, "Pagado (Mercado Pago)",
                 latitud, longitud, cotizacionEnvioId, rateId, codigoPostal, estado, ciudad, colonia),
->>>>>>> 95a2c0e (envios)
             async total =>
             {
                 var esperados = items

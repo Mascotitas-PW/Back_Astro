@@ -7,9 +7,6 @@ public sealed record PayPalCreateOrderRequest(
     string? DireccionEntrega,
     string? Telefono,
     double? Latitud,
-<<<<<<< HEAD
-    double? Longitud);
-=======
     double? Longitud,
     Guid? CotizacionEnvioId,
     string? RateId,
@@ -17,7 +14,6 @@ public sealed record PayPalCreateOrderRequest(
     string? Estado,
     string? Ciudad,
     string? Colonia);
->>>>>>> 95a2c0e (envios)
 
 public sealed record PayPalOrderItem(int ProductoId, int Cantidad);
 

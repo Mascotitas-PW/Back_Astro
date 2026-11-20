@@ -21,12 +21,8 @@ API de la tienda de mascotas **Mascotitas**. Expone una API **GraphQL** (HotChoc
 - **Administración (rol `Admin`):** crear, actualizar y eliminar productos; subir imágenes; consultar usuarios, todos los pedidos y estadísticas.
 - **Pedidos:** creación con pago por tarjeta (Mercado Pago), con PayPal, o sin pago en línea (`Efectivo` / `Transferencia`, queda como `Pendiente de pago`).
 - **Reglas de negocio en el servidor:** el total siempre lo calcula el backend (productos + envío), se valida stock y datos de entrega, y el stock se descuenta en una transacción.
-<<<<<<< HEAD
-- **Envío:** gratis en subtotales mayores a $500 MXN; de lo contrario $99 MXN.
-=======
 - **Envío:** cotización de paqueterías Skydropx en Sandbox; el usuario elige un servicio y el backend valida y guarda la tarifa junto con el pedido.
 - **Paquetes:** el peso se calcula con el peso neto de cada producto más la tara configurada de la caja; las dimensiones de la caja se configuran en el backend.
->>>>>>> 95a2c0e (envios)
 - **Tiempo real:** subscriptions para cambios de stock, de productos y pedidos nuevos (`InMemorySubscriptions`).
 - **Estadísticas:** ventas totales, pedidos, ticket promedio, ventas de los últimos 30 días, top 5 de productos y ventas por categoría.
 
@@ -72,25 +68,18 @@ Las claves se leen de `appsettings`, *user-secrets* o variables de entorno (en v
 | `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | Para PayPal | Credenciales de PayPal |
 | `PayPal:BaseUrl` | No | Por defecto `https://api-m.sandbox.paypal.com` (sandbox) |
 | `PayPal:Currency` | No | Por defecto `MXN` |
-<<<<<<< HEAD
-=======
 | `Skydropx:BaseUrl` | Para cotizar | Host Sandbox indicado para tu cuenta Skydropx; no uses el host de producción |
 | `Skydropx:ClientId` / `Skydropx:ClientSecret` | Para cotizar | Credenciales API de la aplicación Sandbox |
 | `Skydropx:Origin:PostalCode` | Para cotizar | Código postal de la bodega de salida |
 | `Skydropx:Origin:State` / `City` / `Neighborhood` | Para cotizar | Estado, ciudad y colonia de la bodega |
 | `Skydropx:Parcel:LengthCm` / `WidthCm` / `HeightCm` | Para cotizar | Dimensiones exteriores de la caja estándar, en centímetros |
 | `Skydropx:Parcel:TareWeightKg` | Para cotizar | Peso vacío de la caja, en kilogramos |
->>>>>>> 95a2c0e (envios)
 
 Ejemplo con *user-secrets*:
 
 ```bash
 dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Database=mascotitas;Username=postgres;Password=tu_password"
 dotnet user-secrets set "Jwt:Key" "una-llave-larga-y-secreta-de-al-menos-32-caracteres"
-<<<<<<< HEAD
-```
-
-=======
 dotnet user-secrets set "Skydropx:BaseUrl" "<host Sandbox indicado por Skydropx>"
 dotnet user-secrets set "Skydropx:ClientId" "<client id de Sandbox>"
 dotnet user-secrets set "Skydropx:ClientSecret" "<client secret de Sandbox>"
@@ -108,7 +97,6 @@ El portal público de Skydropx documenta `POST /api/v1/quotations`, `GET /api/v1
 
 Para probar: actualiza cada producto desde Administración con su peso neto en kg; captura el estado, ciudad, colonia y código postal del destino; y revisa que la caja configurada pueda contener el pedido. La tarifa se calcula en MXN, vence en 24 horas y se persiste en el pedido. El servicio respeta el procesamiento asíncrono de cotizaciones y consulta hasta que Skydropx las completa.
 
->>>>>>> 95a2c0e (envios)
 ## Ejecución local
 
 Requisitos: SDK de .NET 10 y una instancia de PostgreSQL.
@@ -147,10 +135,7 @@ El front espera el backend en `http://localhost:5097/graphql` cuando se trabaja 
 | `POST /process_order` | Cobra la tarjeta con Mercado Pago | Autenticado |
 | `POST /api/orders` | Crea la orden de PayPal | Autenticado |
 | `POST /api/orders/{orderId}/capture` | Captura el pago de PayPal y crea el pedido | Autenticado |
-<<<<<<< HEAD
-=======
 | `POST /api/envios/cotizaciones` | Cotiza el paquete y guarda las tarifas devueltas por Skydropx | Autenticado |
->>>>>>> 95a2c0e (envios)
 | `POST /api/imagenes` | Sube una imagen de producto | Admin |
 | `GET /images/{archivo}` | Sirve las imágenes subidas | Público |
 | `POST /webhook/mercadopago` | Recibe notificaciones (por ahora solo las registra en el log) | Público |

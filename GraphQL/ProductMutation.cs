@@ -13,12 +13,8 @@ public record ProductoInput(
     decimal Precio,
     string Imagen,
     int Stock,
-<<<<<<< HEAD
-    int CategoriaId
-=======
     int CategoriaId,
     decimal? PesoKg
->>>>>>> 95a2c0e (envios)
 );
 
 [ExtendObjectType(typeof(Mutation))]
@@ -44,10 +40,7 @@ public class ProductMutation
             Precio = input.Precio,
             Imagen = input.Imagen,
             Stock = input.Stock,
-<<<<<<< HEAD
-=======
             PesoKg = input.PesoKg,
->>>>>>> 95a2c0e (envios)
             CategoriaId = input.CategoriaId
         };
 
@@ -74,10 +67,7 @@ public class ProductMutation
         producto.Precio = input.Precio;
         producto.Imagen = input.Imagen;
         producto.Stock = input.Stock;
-<<<<<<< HEAD
-=======
         producto.PesoKg = input.PesoKg;
->>>>>>> 95a2c0e (envios)
         producto.CategoriaId = input.CategoriaId;
 
         await context.SaveChangesAsync();
@@ -109,11 +99,8 @@ public class ProductMutation
             throw new GraphQLException("El precio debe ser mayor a 0.");
         if (input.Stock < 0)
             throw new GraphQLException("El stock no puede ser negativo.");
-<<<<<<< HEAD
-=======
         if (input.PesoKg is null or <= 0)
             throw new GraphQLException("El peso del producto debe ser mayor a 0 kg.");
->>>>>>> 95a2c0e (envios)
         if (!await context.Categorias.AnyAsync(c => c.Id == input.CategoriaId))
             throw new GraphQLException($"La categoría {input.CategoriaId} no existe.");
     }

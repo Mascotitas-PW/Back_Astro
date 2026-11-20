@@ -9,11 +9,6 @@ namespace back.Models
         public int UsuarioId { get; set; }
         public string? NombreCompleto { get; set; }
         public string? DireccionEntrega { get; set; }
-<<<<<<< HEAD
-        public string? Telefono { get; set; }
-        public double? Latitud { get; set; }
-        public double? Longitud { get; set; }
-=======
         public string? CodigoPostalEntrega { get; set; }
         public string? EstadoEntrega { get; set; }
         public string? CiudadEntrega { get; set; }
@@ -26,6 +21,5 @@ namespace back.Models
         public string? Paqueteria { get; set; }
         public string? ServicioEnvio { get; set; }
         public decimal? CostoEnvio { get; set; }
->>>>>>> 95a2c0e (envios)
     }
 }

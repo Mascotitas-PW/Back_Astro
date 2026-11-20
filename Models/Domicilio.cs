@@ -10,12 +10,9 @@ public class Domicilio
     public string Telefono { get; set; } = string.Empty;
     public string Direccion { get; set; } = string.Empty;
     public string? CodigoPostal { get; set; }
-<<<<<<< HEAD
-=======
     public string? Estado { get; set; }
     public string? Ciudad { get; set; }
     public string? Colonia { get; set; }
->>>>>>> 95a2c0e (envios)
     public double? Latitud { get; set; }
     public double? Longitud { get; set; }
     public bool Predeterminado { get; set; }

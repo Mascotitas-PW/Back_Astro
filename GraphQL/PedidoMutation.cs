@@ -25,9 +25,6 @@ public record CrearPedidoInput(
     string DireccionEntrega,
     string Telefono,
     double? Latitud,
-<<<<<<< HEAD
-    double? Longitud
-=======
     double? Longitud,
     Guid? CotizacionEnvioId,
     string? RateId,
@@ -35,7 +32,6 @@ public record CrearPedidoInput(
     string? Estado,
     string? Ciudad,
     string? Colonia
->>>>>>> 95a2c0e (envios)
 );
 
 // Pedido con pago fuera de línea
@@ -48,9 +44,6 @@ public record CrearPedidoSinPagoInput(
     string DireccionEntrega,
     string Telefono,
     double? Latitud,
-<<<<<<< HEAD
-    double? Longitud
-=======
     double? Longitud,
     Guid? CotizacionEnvioId,
     string? RateId,
@@ -58,7 +51,6 @@ public record CrearPedidoSinPagoInput(
     string? Estado,
     string? Ciudad,
     string? Colonia
->>>>>>> 95a2c0e (envios)
 );
 
 // Solo recibe, comprueba permisos y delega. La lógica vive en
@@ -87,9 +79,6 @@ public class PedidoMutation
                 input.DireccionEntrega,
                 input.Telefono,
                 input.Latitud,
-<<<<<<< HEAD
-                input.Longitud);
-=======
                 input.Longitud,
                 input.CotizacionEnvioId,
                 input.RateId,
@@ -97,7 +86,6 @@ public class PedidoMutation
                 input.Estado,
                 input.Ciudad,
                 input.Colonia);
->>>>>>> 95a2c0e (envios)
         }
         catch (PaymentRequestException ex)
         {
@@ -129,9 +117,6 @@ public class PedidoMutation
                 input.Telefono,
                 $"Pendiente de pago ({metodoPago})",
                 input.Latitud,
-<<<<<<< HEAD
-                input.Longitud));
-=======
                 input.Longitud,
                 input.CotizacionEnvioId,
                 input.RateId,
@@ -139,7 +124,6 @@ public class PedidoMutation
                 input.Estado,
                 input.Ciudad,
                 input.Colonia));
->>>>>>> 95a2c0e (envios)
         }
         catch (PaymentRequestException ex)
         {
