@@ -47,6 +47,11 @@ builder.Services.AddHttpClient<PayPalPaymentService>(client =>
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
+builder.Services.AddHttpClient<MexicoPostalService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+
 builder.Services.Configure<FormOptions>(options =>
 {
     options.MultipartBodyLengthLimit = 6 * 1024 * 1024;
@@ -276,5 +281,16 @@ using (var scope = app.Services.CreateScope())
         log.LogError(ex, "No se pudo preparar la base de datos (columnas/tablas nuevas).");
     }
 }
+
+app.MapGet("/api/codigos-postales/{codigoPostal}", async (
+    string codigoPostal,
+    MexicoPostalService postalService,
+    CancellationToken cancellationToken) =>
+{
+    var resultado = await postalService.BuscarAsync(codigoPostal, cancellationToken);
+    return resultado is null
+        ? Results.NotFound(new { message = "Código postal no encontrado." })
+        : Results.Ok(resultado);
+});
 
 app.Run();
