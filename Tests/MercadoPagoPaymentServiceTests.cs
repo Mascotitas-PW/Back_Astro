@@ -159,16 +159,6 @@ public class MercadoPagoPaymentServiceTests
             CategoriaId = 1,
             Imagen = "croquetas.png"
         });
-        context.Cotizaciones.Add(new Cotizacion
-        {
-            Id = CotizacionId,
-            UsuarioId = 1,
-            ProductoId = 1,
-            FechaCreacion = DateTime.UtcNow,
-            FechaExpiracion = DateTime.UtcNow.AddDays(1),
-            Precio = 350.00m,
-            Activa = true
-        });
         context.CotizacionesEnvio.Add(new CotizacionEnvio
         {
             Id = CotizacionId,

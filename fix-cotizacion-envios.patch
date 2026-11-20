@@ -1,0 +1,1431 @@
+diff --git a/Http/ApiErrorHandling.cs b/Http/ApiErrorHandling.cs
+new file mode 100644
+index 0000000..bd687ac
+--- /dev/null
++++ b/Http/ApiErrorHandling.cs
+@@ -0,0 +1,42 @@
++using Microsoft.AspNetCore.Diagnostics;
++
++namespace back.Http;
++
++/// <summary>
++/// Manejo global de excepciones no controladas: registra la excepción completa en el log y responde un
++/// JSON genérico sin detalles internos.
++///
++/// Nota sobre CORS: CorsMiddleware aplica sus headers al iniciar la respuesta (OnStarting), así que la
++/// respuesta de este handler los conserva siempre que corra dentro del pipeline con UseCors. Sin ningún
++/// handler, en cambio, la excepción llega al servidor, que responde un 500 vacío SIN headers CORS; el
++/// navegador lo reporta como "error CORS" y oculta el 500 real.
++/// </summary>
++public static class ApiErrorHandling
++{
++    public const string GenericMessage = "Ocurrió un error inesperado. Inténtalo nuevamente.";
++
++    public static IApplicationBuilder UseApiExceptionHandler(this IApplicationBuilder app)
++    {
++        return app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
++        {
++            var error = context.Features.Get<IExceptionHandlerFeature>()?.Error;
++            var logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("back.ApiErrors");
++
++            var (status, message) = Describe(error);
++            if (status >= 500)
++                logger.LogError(error, "Error no controlado en {Method} {Path}", context.Request.Method, context.Request.Path);
++            else
++                logger.LogWarning(error, "Solicitud rechazada ({Status}) en {Method} {Path}", status, context.Request.Method, context.Request.Path);
++
++            context.Response.StatusCode = status;
++            await context.Response.WriteAsJsonAsync(new { message });
++        }));
++    }
++
++    // Nunca se devuelve el texto de la excepción: puede incluir rutas, SQL o configuración.
++    internal static (int Status, string Message) Describe(Exception? error) => error switch
++    {
++        BadHttpRequestException bad => (bad.StatusCode, "La solicitud no es válida."),
++        _ => (StatusCodes.Status500InternalServerError, GenericMessage)
++    };
++}
+diff --git a/Payments/CotizacionValidation.cs b/Payments/CotizacionValidation.cs
+new file mode 100644
+index 0000000..99d2e9d
+--- /dev/null
++++ b/Payments/CotizacionValidation.cs
+@@ -0,0 +1,89 @@
++using back.GraphQL;
++using back.Models;
++
++namespace back.Payments;
++
++public sealed record CrearCotizacionRequest(
++    List<ItemPedidoInput>? Items,
++    string? CodigoPostal,
++    string? Estado,
++    string? Ciudad,
++    string? Colonia);
++
++public sealed record CotizacionResponse(Guid Id, IReadOnlyList<TarifaEnvio> Tarifas, DateTime VenceUtc);
++
++public sealed record CotizacionValida(
++    string CodigoPostal,
++    string Estado,
++    string Ciudad,
++    string Colonia,
++    IReadOnlyList<ItemPedidoInput> Items);
++
++public static class CotizacionValidation
++{
++    public const int MaxLineas = 100;
++    public const int MaxCantidad = 1000;
++    public const int MaxTextoDireccion = 120;
++
++    /// <summary>Valida el payload y devuelve un mensaje útil para el cliente (400) si es inválido.</summary>
++    public static (CotizacionValida? Valida, string? Error) Validar(CrearCotizacionRequest? request)
++    {
++        if (request is null)
++            return (null, "El cuerpo de la solicitud es obligatorio.");
++
++        var errores = new List<string>();
++
++        var cp = new string((request.CodigoPostal ?? "").Where(char.IsDigit).ToArray());
++        if (cp.Length != 5)
++            errores.Add("El código postal debe tener 5 dígitos.");
++
++        var estado = (request.Estado ?? "").Trim();
++        var ciudad = (request.Ciudad ?? "").Trim();
++        var colonia = (request.Colonia ?? "").Trim();
++        ValidarTexto("estado", estado, errores);
++        ValidarTexto("ciudad", ciudad, errores);
++        ValidarTexto("colonia", colonia, errores);
++
++        var items = new List<ItemPedidoInput>();
++        if (request.Items is null || request.Items.Count == 0)
++        {
++            errores.Add("El carrito está vacío.");
++        }
++        else if (request.Items.Count > MaxLineas)
++        {
++            errores.Add($"El carrito no puede tener más de {MaxLineas} productos distintos.");
++        }
++        else
++        {
++            var validas = request.Items.Where(i => i is not null && i.ProductoId >= 1).ToList();
++            if (validas.Count != request.Items.Count)
++                errores.Add("Hay un producto con identificador inválido.");
++
++            foreach (var grupo in validas.GroupBy(i => i.ProductoId))
++            {
++                // long evita OverflowException (→ 500) al sumar cantidades enormes.
++                var total = grupo.Sum(i => (long)i.Cantidad);
++                if (grupo.Any(i => i.Cantidad < 1) || total > MaxCantidad)
++                {
++                    errores.Add($"La cantidad del producto {grupo.Key} debe estar entre 1 y {MaxCantidad}.");
++                    continue;
++                }
++
++                items.Add(new ItemPedidoInput(grupo.Key, (int)total));
++            }
++        }
++
++        if (errores.Count > 0)
++            return (null, string.Join(" ", errores));
++
++        return (new CotizacionValida(cp, estado, ciudad, colonia, items), null);
++    }
++
++    private static void ValidarTexto(string campo, string valor, List<string> errores)
++    {
++        if (valor.Length < 2)
++            errores.Add($"Indica el campo {campo}.");
++        else if (valor.Length > MaxTextoDireccion)
++            errores.Add($"El campo {campo} no puede superar {MaxTextoDireccion} caracteres.");
++    }
++}
+diff --git a/Payments/EnvioEndpoint.cs b/Payments/EnvioEndpoint.cs
+index d13f0ae..3c7e223 100644
+--- a/Payments/EnvioEndpoint.cs
++++ b/Payments/EnvioEndpoint.cs
+@@ -1,122 +1,137 @@
++using System.Data.Common;
++using System.Net.Sockets;
+ using System.Security.Claims;
+ using System.Text.Json;
+-using back.GraphQL;
+ using back.Models;
+ using Microsoft.EntityFrameworkCore;
++using Npgsql;
+ 
+ namespace back.Payments;
+ 
+-public sealed record CrearCotizacionRequest(
+-    List<ItemPedidoInput>? Items,
+-    string? CodigoPostal,
+-    string? Estado,
+-    string? Ciudad,
+-    string? Colonia);
+-
+-public sealed record CotizacionResponse(Guid Id, IReadOnlyList<TarifaEnvio> Tarifas, DateTime VenceUtc);
+-
+ public static class EnvioEndpoint
+ {
+     public static void MapEnvios(this WebApplication app)
+     {
+-        app.MapPost("/api/envios/cotizaciones", async (
+-            CrearCotizacionRequest request,
+-            ClaimsPrincipal user,
+-            AppDbContext context,
+-            SkydropxClient skydropx,
+-            IConfiguration configuration,
+-            MexicoPostalService postalService,
+-            ILogger<SkydropxClient> logger,
+-            CancellationToken cancellationToken) =>
+-        {
+-            if (!int.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var usuarioId) || usuarioId < 1)
+-                return Results.Unauthorized();
++        app.MapPost("/api/envios/cotizaciones", CotizarAsync).RequireAuthorization();
++    }
+ 
+-            var cp = new string((request.CodigoPostal ?? "").Where(char.IsDigit).ToArray());
+-            var estado = (request.Estado ?? "").Trim();
+-            var ciudad = (request.Ciudad ?? "").Trim();
+-            var colonia = (request.Colonia ?? "").Trim();
+-            var items = request.Items?.GroupBy(item => item.ProductoId)
+-                .Select(group => new ItemPedidoInput(group.Key, group.Sum(item => item.Cantidad))).ToList();
+-            if (cp.Length != 5 || estado.Length < 2 || ciudad.Length < 2 || colonia.Length < 2 ||
+-                items is null || items.Count == 0 || items.Any(item => item.ProductoId < 1 || item.Cantidad < 1))
+-                return Results.BadRequest(new { message = "Completa el código postal, estado, ciudad, colonia y carrito." });
++    internal static async Task<IResult> CotizarAsync(
++        CrearCotizacionRequest? request,
++        ClaimsPrincipal user,
++        AppDbContext context,
++        ISkydropxClient skydropx,
++        IConfiguration configuration,
++        IMexicoPostalService postalService,
++        ILoggerFactory loggerFactory,
++        CancellationToken cancellationToken)
++    {
++        var logger = loggerFactory.CreateLogger("back.Envios");
+ 
+-            try
+-            {
+-                var codigoPostal = await postalService.BuscarAsync(cp, cancellationToken);
+-                if (codigoPostal is null)
+-                    return Results.NotFound(new { message = "Código postal no encontrado." });
++        if (!int.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var usuarioId) || usuarioId < 1)
++            return Results.Unauthorized();
+ 
+-                var ids = items.Select(item => item.ProductoId).ToList();
+-                var productos = await context.Productos.Where(product => ids.Contains(product.Id)).ToDictionaryAsync(product => product.Id, cancellationToken);
+-                decimal pesoKg = configuration.GetValue<decimal>("Skydropx:Parcel:TareWeightKg");
+-                foreach (var item in items)
+-                {
+-                    if (!productos.TryGetValue(item.ProductoId, out var producto))
+-                        return Results.BadRequest(new { message = $"El producto {item.ProductoId} no existe." });
+-                    if (producto.PesoKg is null or <= 0)
+-                        return Results.BadRequest(new { message = $"Configura el peso de '{producto.Nombre}' antes de cotizar." });
+-                    pesoKg += producto.PesoKg.Value * item.Cantidad;
+-                }
++        var (datos, error) = CotizacionValidation.Validar(request);
++        if (datos is null)
++            return Results.BadRequest(new { message = error });
+ 
+-                if (pesoKg <= 0)
+-                    return Results.BadRequest(new { message = "El peso del paquete debe ser mayor a cero." });
+-                pesoKg = Math.Max(1m, pesoKg);
++        try
++        {
++            var codigoPostal = await postalService.BuscarAsync(datos.CodigoPostal, cancellationToken);
++            if (codigoPostal is null)
++                return Results.NotFound(new { message = "Código postal no encontrado." });
+ 
+-                var resultado = await skydropx.CotizarAsync(
+-                    new DireccionCotizacion(cp, estado, ciudad, colonia), pesoKg, cancellationToken);
+-                var ahora = DateTime.UtcNow;
+-                var cotizacion = new CotizacionEnvio
+-                {
+-                    Id = Guid.NewGuid(),
+-                    UsuarioId = usuarioId,
+-                    SkydropxId = resultado.Id,
+-                    CodigoPostal = cp,
+-                    Estado = estado,
+-                    Ciudad = ciudad,
+-                    Colonia = colonia,
+-                    TarifasJson = JsonSerializer.Serialize(resultado.Tarifas),
+-                    CreadaUtc = ahora,
+-                    VenceUtc = ahora.AddHours(24)
+-                };
+-                context.Add(cotizacion);
+-                await context.SaveChangesAsync(cancellationToken);
++            var ids = datos.Items.Select(item => item.ProductoId).ToList();
++            var productos = await context.Productos
++                .Where(product => ids.Contains(product.Id))
++                .ToDictionaryAsync(product => product.Id, cancellationToken);
+ 
+-                return Results.Ok(new CotizacionResponse(cotizacion.Id, resultado.Tarifas, cotizacion.VenceUtc));
+-            }
+-            catch (SkydropxConfigurationException)
+-            {
+-                return Results.Json(new { message = "El servicio de envíos no está configurado correctamente." }, statusCode: StatusCodes.Status503ServiceUnavailable);
+-            }
+-            catch (SkydropxProviderException ex)
+-            {
+-                return Results.Json(new { message = ex.Message }, statusCode: ex.StatusCode);
+-            }
+-            catch (TimeoutException ex)
+-            {
+-                return Results.Json(new { message = ex.Message }, statusCode: StatusCodes.Status504GatewayTimeout);
+-            }
+-            catch (InvalidOperationException ex)
+-            {
+-                return Results.Json(new { message = ex.Message }, statusCode: StatusCodes.Status503ServiceUnavailable);
+-            }
+-            catch (HttpRequestException)
+-            {
+-                return Results.Json(new { message = "No se pudo conectar con el proveedor de envíos." }, statusCode: StatusCodes.Status502BadGateway);
+-            }
+-            catch (Microsoft.EntityFrameworkCore.DbUpdateException)
++            decimal pesoKg = SkydropxSettings.ReadDecimal(configuration, "Skydropx:Parcel:TareWeightKg", required: false);
++            foreach (var item in datos.Items)
+             {
+-                return Results.Json(new { message = "No se pudo guardar la cotización." }, statusCode: StatusCodes.Status503ServiceUnavailable);
++                if (!productos.TryGetValue(item.ProductoId, out var producto))
++                    return Results.BadRequest(new { message = $"El producto {item.ProductoId} no existe." });
++                if (producto.PesoKg is null or <= 0)
++                    return Results.BadRequest(new { message = $"Configura el peso de '{producto.Nombre}' antes de cotizar." });
++                pesoKg += producto.PesoKg.Value * item.Cantidad;
+             }
+-            catch (JsonException)
+-            {
+-                return Results.Json(new { message = "El proveedor de envíos devolvió una respuesta inválida." }, statusCode: StatusCodes.Status502BadGateway);
+-            }
+-            catch (Exception)
++
++            if (pesoKg <= 0)
++                return Results.BadRequest(new { message = "El peso del paquete debe ser mayor a cero." });
++            pesoKg = Math.Max(1m, pesoKg);
++
++            var resultado = await skydropx.CotizarAsync(
++                new DireccionCotizacion(datos.CodigoPostal, datos.Estado, datos.Ciudad, datos.Colonia),
++                pesoKg,
++                cancellationToken);
++
++            var ahora = DateTime.UtcNow;
++            var cotizacion = new CotizacionEnvio
+             {
+-                return Results.Json(new { message = "Ocurrió un error inesperado al cotizar el envío." }, statusCode: StatusCodes.Status500InternalServerError);
+-            }
+-        }).RequireAuthorization();
++                Id = Guid.NewGuid(),
++                UsuarioId = usuarioId,
++                SkydropxId = resultado.Id,
++                CodigoPostal = datos.CodigoPostal,
++                Estado = datos.Estado,
++                Ciudad = datos.Ciudad,
++                Colonia = datos.Colonia,
++                TarifasJson = JsonSerializer.Serialize(resultado.Tarifas),
++                CreadaUtc = ahora,
++                VenceUtc = ahora.AddHours(24)
++            };
++            context.Add(cotizacion);
++            await context.SaveChangesAsync(cancellationToken);
++
++            return Results.Ok(new CotizacionResponse(cotizacion.Id, resultado.Tarifas, cotizacion.VenceUtc));
++        }
++        // El cliente cerró la conexión: no es un error del servidor.
++        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
++        {
++            return Results.StatusCode(499);
++        }
++        catch (SkydropxConfigurationException ex)
++        {
++            logger.LogError(ex, "Configuración de Skydropx incompleta o inválida.");
++            return Results.Json(new { message = "El servicio de envíos no está disponible por el momento." },
++                statusCode: StatusCodes.Status503ServiceUnavailable);
++        }
++        catch (SkydropxProviderException ex)
++        {
++            // ex.Message lo redactamos nosotros en SkydropxClient (nunca es el cuerpo crudo del proveedor).
++            logger.LogWarning(ex, "Skydropx devolvió un error ({Status}).", ex.StatusCode);
++            return Results.Json(new { message = ex.Message }, statusCode: ex.StatusCode);
++        }
++        catch (Exception ex) when (ex is TimeoutException || ex is OperationCanceledException)
++        {
++            logger.LogWarning(ex, "Tiempo de espera agotado al cotizar el envío.");
++            return Results.Json(new { message = "El proveedor de envíos tardó demasiado en responder. Intenta de nuevo en unos segundos." },
++                statusCode: StatusCodes.Status504GatewayTimeout);
++        }
++        catch (HttpRequestException ex)
++        {
++            logger.LogWarning(ex, "No se pudo conectar con un servicio externo al cotizar el envío.");
++            return Results.Json(new { message = "No se pudo conectar con el proveedor de envíos." },
++                statusCode: StatusCodes.Status502BadGateway);
++        }
++        catch (JsonException ex)
++        {
++            logger.LogWarning(ex, "Respuesta inválida de un servicio externo al cotizar el envío.");
++            return Results.Json(new { message = "El proveedor de envíos devolvió una respuesta inválida." },
++                statusCode: StatusCodes.Status502BadGateway);
++        }
++        catch (Exception ex) when (EsErrorTransitorioDeBaseDeDatos(ex))
++        {
++            logger.LogError(ex, "La base de datos no estuvo disponible al cotizar el envío.");
++            return Results.Json(new { message = "El servicio no está disponible temporalmente. Intenta de nuevo en unos minutos." },
++                statusCode: StatusCodes.Status503ServiceUnavailable);
++        }
++        // Cualquier otra excepción es inesperada: se propaga al handler global (ApiErrorHandling),
++        // que la registra completa, responde 500 genérico y conserva los headers CORS.
++    }
++
++    private static bool EsErrorTransitorioDeBaseDeDatos(Exception ex)
++    {
++        var db = ex as DbException ?? (ex as DbUpdateException)?.InnerException as DbException;
++        return db is NpgsqlException { IsTransient: true } ||
++               db?.InnerException is TimeoutException or IOException or SocketException;
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/Payments/MexicoPostalService.cs b/Payments/MexicoPostalService.cs
+index 7e15185..a8bda5e 100644
+--- a/Payments/MexicoPostalService.cs
++++ b/Payments/MexicoPostalService.cs
+@@ -9,7 +9,12 @@ public sealed record CodigoPostalMexicoResponse(
+     string Ciudad,
+     IReadOnlyList<string> Colonias);
+ 
+-public sealed class MexicoPostalService(HttpClient httpClient)
++public interface IMexicoPostalService
++{
++    Task<CodigoPostalMexicoResponse?> BuscarAsync(string codigoPostal, CancellationToken cancellationToken);
++}
++
++public sealed class MexicoPostalService(HttpClient httpClient, ILogger<MexicoPostalService> logger) : IMexicoPostalService
+ {
+     public async Task<CodigoPostalMexicoResponse?> BuscarAsync(
+         string codigoPostal,
+@@ -21,14 +26,20 @@ public sealed class MexicoPostalService(HttpClient httpClient)
+ 
+         using var response = await httpClient.GetAsync(
+             $"https://api.zippopotam.us/MX/{cp}", cancellationToken);
+-        if (!response.IsSuccessStatusCode)
++        // 404 = el código postal no existe. Cualquier otro fallo del servicio es un error del proveedor
++        // (HttpRequestException → 502), no "código postal no encontrado".
++        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+             return null;
++        response.EnsureSuccessStatusCode();
+ 
+         using var document = await JsonDocument.ParseAsync(
+             await response.Content.ReadAsStreamAsync(cancellationToken),
+             cancellationToken: cancellationToken);
+         var root = document.RootElement;
+ 
++        if (root.ValueKind != JsonValueKind.Object)
++            throw new JsonException("Respuesta inesperada del servicio de códigos postales.");
++
+         if (!root.TryGetProperty("places", out var places) ||
+             places.ValueKind != JsonValueKind.Array)
+             return null;
+@@ -62,7 +73,20 @@ public sealed class MexicoPostalService(HttpClient httpClient)
+             return null;
+ 
+         var listaColonias = colonias.ToArray();
+-        var ciudad = await BuscarCiudadAsync(cp, cancellationToken) ?? estado;
++        // La ciudad viene de Nominatim, que es opcional: si falla o tarda, se usa el estado en lugar de
++        // convertir una caída de ese servicio en un error de la cotización.
++        string? ciudadEncontrada = null;
++        try
++        {
++            ciudadEncontrada = await BuscarCiudadAsync(cp, cancellationToken);
++        }
++        catch (Exception ex) when (ex is HttpRequestException or JsonException ||
++                                   (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
++        {
++            logger.LogWarning(ex, "No se pudo resolver la ciudad del código postal {CodigoPostal}; se usará el estado.", cp);
++        }
++
++        var ciudad = ciudadEncontrada ?? estado;
+         return new CodigoPostalMexicoResponse(cp, estado, estadoAbreviado, ciudad, listaColonias);
+     }
+ 
+diff --git a/Payments/SkydropxClient.cs b/Payments/SkydropxClient.cs
+index bb6f7f4..edcc694 100644
+--- a/Payments/SkydropxClient.cs
++++ b/Payments/SkydropxClient.cs
+@@ -8,12 +8,21 @@ public sealed record DireccionCotizacion(string CodigoPostal, string Estado, str
+ 
+ public sealed record ResultadoCotizacionSkydropx(string Id, IReadOnlyList<back.Models.TarifaEnvio> Tarifas);
+ 
++public interface ISkydropxClient
++{
++    Task<ResultadoCotizacionSkydropx> CotizarAsync(
++        DireccionCotizacion destino,
++        decimal pesoKg,
++        CancellationToken cancellationToken);
++}
++
+ public sealed class SkydropxClient(
+     HttpClient httpClient,
+     IConfiguration configuration,
+     IMemoryCache cache,
+-    ILogger<SkydropxClient> logger)
++    ILogger<SkydropxClient> logger) : ISkydropxClient
+ {
++    private const string TokenCacheKey = "Skydropx.AccessToken";
+     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+     private static readonly SemaphoreSlim ApiThrottle = new(1, 1);
+     private static DateTime NextApiRequestUtc;
+@@ -32,9 +41,9 @@ public sealed class SkydropxClient(
+ 
+         var origin = configuration.GetSection("Skydropx:Origin");
+         var parcel = configuration.GetSection("Skydropx:Parcel");
+-        var length = parcel.GetValue<decimal>("LengthCm");
+-        var width = parcel.GetValue<decimal>("WidthCm");
+-        var height = parcel.GetValue<decimal>("HeightCm");
++        var length = SkydropxSettings.ReadDecimal(configuration, "Skydropx:Parcel:LengthCm");
++        var width = SkydropxSettings.ReadDecimal(configuration, "Skydropx:Parcel:WidthCm");
++        var height = SkydropxSettings.ReadDecimal(configuration, "Skydropx:Parcel:HeightCm");
+ 
+         if (length <= 0 || width <= 0 || height <= 0)
+             throw new SkydropxConfigurationException("Configura largo, ancho y alto positivos en Skydropx:Parcel.");
+@@ -82,6 +91,7 @@ public sealed class SkydropxClient(
+ 
+         using var created = await JsonDocument.ParseAsync(
+             await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
++        ExigirObjeto(created.RootElement, "la creación de la cotización");
+         var quotationId = LeerTexto(created.RootElement, "id");
+         if (string.IsNullOrWhiteSpace(quotationId))
+             throw new SkydropxProviderException("Skydropx no devolvió el identificador de cotización.");
+@@ -99,6 +109,7 @@ public sealed class SkydropxClient(
+ 
+             using var quote = await JsonDocument.ParseAsync(
+                 await quoteResponse.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
++            ExigirObjeto(quote.RootElement, "la consulta de la cotización");
+             if (quote.RootElement.TryGetProperty("is_completed", out var completed) &&
+                 completed.ValueKind == JsonValueKind.True)
+             {
+@@ -111,7 +122,7 @@ public sealed class SkydropxClient(
+ 
+     private async Task<string> ObtenerTokenAsync(CancellationToken cancellationToken)
+     {
+-        const string cacheKey = "Skydropx.AccessToken";
++        const string cacheKey = TokenCacheKey;
+         if (cache.TryGetValue(cacheKey, out string? cached) && !string.IsNullOrWhiteSpace(cached))
+             return cached;
+ 
+@@ -136,11 +147,13 @@ public sealed class SkydropxClient(
+ 
+         using var body = await JsonDocument.ParseAsync(
+             await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
++        ExigirObjeto(body.RootElement, "la autenticación");
+         var accessToken = LeerTexto(body.RootElement, "access_token");
+         if (string.IsNullOrWhiteSpace(accessToken))
+             throw new SkydropxProviderException("Skydropx no devolvió un bearer token.");
+ 
+         var expiresIn = body.RootElement.TryGetProperty("expires_in", out var expires) &&
++                        expires.ValueKind == JsonValueKind.Number &&
+                         expires.TryGetInt32(out var seconds) ? seconds : 7200;
+         cache.Set(cacheKey, accessToken, TimeSpan.FromSeconds(Math.Max(60, expiresIn - 60)));
+         return accessToken;
+@@ -156,8 +169,10 @@ public sealed class SkydropxClient(
+         {
+             foreach (var item in included.EnumerateArray())
+             {
+-                if (LeerTexto(item, "type") == "rate" &&
+-                    item.TryGetProperty("attributes", out var attributes))
++                if (item.ValueKind == JsonValueKind.Object &&
++                    LeerTexto(item, "type") == "rate" &&
++                    item.TryGetProperty("attributes", out var attributes) &&
++                    attributes.ValueKind == JsonValueKind.Object)
+                     AgregarTarifa(item, attributes, rates);
+             }
+         }
+@@ -168,7 +183,10 @@ public sealed class SkydropxClient(
+     private static void AgregarTarifas(JsonElement ratesElement, List<back.Models.TarifaEnvio> rates)
+     {
+         foreach (var rate in ratesElement.EnumerateArray())
+-            AgregarTarifa(rate, rate, rates);
++        {
++            if (rate.ValueKind == JsonValueKind.Object)
++                AgregarTarifa(rate, rate, rates);
++        }
+     }
+ 
+     private static void AgregarTarifa(JsonElement identity, JsonElement attributes, List<back.Models.TarifaEnvio> rates)
+@@ -183,16 +201,39 @@ public sealed class SkydropxClient(
+             string.IsNullOrWhiteSpace(service) || !decimal.TryParse(amountText, System.Globalization.CultureInfo.InvariantCulture, out var amount))
+             return;
+ 
+-        int? days = attributes.TryGetProperty("days", out var daysValue) && daysValue.TryGetInt32(out var parsedDays)
+-            ? parsedDays
+-            : null;
++        int? days = null;
++        if (attributes.TryGetProperty("days", out var daysValue))
++        {
++            // TryGetInt32 lanza InvalidOperationException si el valor es null o texto; Skydropx
++            // devuelve "days": null cuando la paquetería no estima tiempo de entrega.
++            if (daysValue.ValueKind == JsonValueKind.Number && daysValue.TryGetInt32(out var parsedDays))
++                days = parsedDays;
++            else if (daysValue.ValueKind == JsonValueKind.String &&
++                     int.TryParse(daysValue.GetString(), System.Globalization.NumberStyles.Integer,
++                         System.Globalization.CultureInfo.InvariantCulture, out var textDays))
++                days = textDays;
++        }
+         rates.Add(new back.Models.TarifaEnvio(id, carrier, service, amount, currency, days));
+     }
+ 
+-    private static string? LeerTexto(JsonElement element, string property) =>
+-        element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
+-            ? value.GetString()
+-            : null;
++    private static string? LeerTexto(JsonElement element, string property)
++    {
++        if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(property, out var value))
++            return null;
++
++        return value.ValueKind switch
++        {
++            JsonValueKind.String => value.GetString(),
++            JsonValueKind.Number => value.GetRawText(),
++            _ => null
++        };
++    }
++
++    private static void ExigirObjeto(JsonElement element, string contexto)
++    {
++        if (element.ValueKind != JsonValueKind.Object)
++            throw new SkydropxProviderException($"Skydropx devolvió una respuesta inesperada en {contexto}.");
++    }
+ 
+     private async Task<HttpResponseMessage> SendThrottledAsync(
+         HttpRequestMessage request,
+@@ -221,11 +262,11 @@ public sealed class SkydropxClient(
+         var details = await response.Content.ReadAsStringAsync(cancellationToken);
+         logger.LogWarning("Skydropx respondió HTTP {StatusCode}: {Details}", (int)response.StatusCode, details);
+ 
+-        var statusCode = (int)response.StatusCode >= 500
+-            ? 502
+-            : (int)response.StatusCode == 401 || (int)response.StatusCode == 403
+-                ? 503
+-                : 502;
++        // 401/403: nuestras credenciales fallaron; 429: límite de tasa. Ambos son indisponibilidad (503)
++        // desde el punto de vista del cliente. El resto de fallos del proveedor se reportan como 502.
++        var statusCode = (int)response.StatusCode is 401 or 403 or 429 ? 503 : 502;
++        if ((int)response.StatusCode == 401)
++            cache.Remove(TokenCacheKey); // el token cacheado pudo ser revocado; no reutilizarlo hasta que expire
+ 
+         return new SkydropxProviderException(fallback, statusCode);
+     }
+@@ -238,4 +279,31 @@ public sealed class SkydropxProviderException(string message, int statusCode = 5
+ }
+ 
+ public sealed class SkydropxConfigurationException(string message)
+-    : Exception(message);
+\ No newline at end of file
++    : Exception(message);
++
++internal static class SkydropxSettings
++{
++    /// <summary>
++    /// Lee un decimal de configuración con cultura invariante. Un valor mal escrito (por ejemplo "0,5" o
++    /// "abc" en una variable de entorno) produce una SkydropxConfigurationException con el nombre de la
++    /// clave, en lugar de un InvalidOperationException genérico del binder.
++    /// </summary>
++    public static decimal ReadDecimal(IConfiguration configuration, string key, bool required = true)
++    {
++        var raw = configuration[key];
++        if (string.IsNullOrWhiteSpace(raw))
++        {
++            if (required)
++                throw new SkydropxConfigurationException($"Configura {key}.");
++            return 0m;
++        }
++
++        // Sin AllowThousands: con NumberStyles.Number "0,5" se leería como 5 (la coma sería separador de miles).
++        if (!decimal.TryParse(raw.Trim(),
++                System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowDecimalPoint,
++                System.Globalization.CultureInfo.InvariantCulture, out var value))
++            throw new SkydropxConfigurationException($"{key} no es un número válido (usa punto decimal).");
++
++        return value;
++    }
++}
+diff --git a/Program.cs b/Program.cs
+index ffc11ac..d9b9609 100644
+--- a/Program.cs
++++ b/Program.cs
+@@ -8,6 +8,7 @@ using HotChocolate;
+ 
+ using back;
+ using back.GraphQL;
++using back.Http;
+ using back.Payments;
+ using back.Payments.PayPal;
+ using back.Services;
+@@ -31,7 +32,7 @@ else
+     builder.Services.AddSingleton<IImageService, ImageService>();
+ builder.Services.AddScoped<PedidoService>();
+ builder.Services.AddMemoryCache();
+-builder.Services.AddHttpClient<SkydropxClient>(client =>
++builder.Services.AddHttpClient<ISkydropxClient, SkydropxClient>(client =>
+ {
+     client.Timeout = TimeSpan.FromSeconds(30);
+ });
+@@ -47,7 +48,7 @@ builder.Services.AddHttpClient<PayPalPaymentService>(client =>
+     client.Timeout = TimeSpan.FromSeconds(30);
+ });
+ 
+-builder.Services.AddHttpClient<MexicoPostalService>(client =>
++builder.Services.AddHttpClient<IMexicoPostalService, MexicoPostalService>(client =>
+ {
+     client.Timeout = TimeSpan.FromSeconds(10);
+ });
+@@ -127,28 +128,14 @@ builder.Services
+ var app = builder.Build();
+ 
+ 
++// Debe ir primero: captura excepciones de cualquier middleware/endpoint, las registra y responde 500
++// genérico. Sin handler, el 500 sale sin headers CORS y el navegador lo muestra como error CORS.
++app.UseApiExceptionHandler();
++
+ app.UseResponseCompression();
+ 
+ app.UseCors("AllowReact");
+ 
+-app.UseExceptionHandler(errorApp =>
+-{
+-    errorApp.Run(async context =>
+-    {
+-        var exceptionFeature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+-        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+-        if (exceptionFeature?.Error is not null)
+-            logger.LogError(exceptionFeature.Error, "Error inesperado procesando {Method} {Path}", context.Request.Method, context.Request.Path);
+-
+-        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+-        context.Response.ContentType = "application/json";
+-        await context.Response.WriteAsJsonAsync(new
+-        {
+-            message = "Ocurrió un error inesperado. Inténtalo nuevamente."
+-        });
+-    });
+-});
+-
+ app.UseAuthentication();
+ app.UseAuthorization();
+ 
+@@ -305,13 +292,28 @@ using (var scope = app.Services.CreateScope())
+ 
+ app.MapGet("/api/codigos-postales/{codigoPostal}", async (
+     string codigoPostal,
+-    MexicoPostalService postalService,
++    IMexicoPostalService postalService,
++    ILogger<Program> logger,
+     CancellationToken cancellationToken) =>
+ {
+-    var resultado = await postalService.BuscarAsync(codigoPostal, cancellationToken);
+-    return resultado is null
+-        ? Results.NotFound(new { message = "Código postal no encontrado." })
+-        : Results.Ok(resultado);
++    try
++    {
++        var resultado = await postalService.BuscarAsync(codigoPostal, cancellationToken);
++        return resultado is null
++            ? Results.NotFound(new { message = "Código postal no encontrado." })
++            : Results.Ok(resultado);
++    }
++    catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException ||
++                               (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
++    {
++        logger.LogWarning(ex, "El servicio de códigos postales no respondió correctamente.");
++        return Results.Json(
++            new { message = "No se pudo consultar el servicio de códigos postales." },
++            statusCode: StatusCodes.Status502BadGateway);
++    }
+ });
+ 
+ app.Run();
++
++// Necesario para WebApplicationFactory<Program> en las pruebas de integración.
++public partial class Program;
+diff --git a/Tests/EnvioApiFactory.cs b/Tests/EnvioApiFactory.cs
+new file mode 100644
+index 0000000..89d9f8f
+--- /dev/null
++++ b/Tests/EnvioApiFactory.cs
+@@ -0,0 +1,147 @@
++using back;
++using back.GraphQL;
++using back.Models;
++using back.Payments;
++using back.Services.Auth;
++using Microsoft.AspNetCore.Hosting;
++using Microsoft.AspNetCore.Mvc.Testing;
++using Microsoft.AspNetCore.TestHost;
++using Microsoft.EntityFrameworkCore;
++using Microsoft.Extensions.DependencyInjection;
++using Microsoft.IdentityModel.JsonWebTokens;
++using Microsoft.IdentityModel.Tokens;
++using System.Security.Claims;
++using System.Text;
++
++/// <summary>
++/// Levanta el pipeline real de la API (JWT, CORS, handler de excepciones, endpoint) con base de datos
++/// en memoria y dobles de Skydropx / servicio postal. Nunca usa credenciales ni tokens reales.
++/// </summary>
++public sealed class EnvioApiFactory : WebApplicationFactory<Program>
++{
++    public const string TestJwtKey = "clave-solo-para-pruebas-0123456789-0123456789-abcdef";
++
++    private readonly string _dbName = Guid.NewGuid().ToString();
++    private readonly object _seedLock = new();
++    private bool _seeded;
++
++    public FakeSkydropxClient Skydropx { get; } = new();
++    public FakePostalService Postal { get; } = new();
++
++    static EnvioApiFactory()
++    {
++        // Program.cs lee estos valores al construir el builder (antes de que corran los callbacks del
++        // factory), por eso se pasan como variables de entorno y no con ConfigureAppConfiguration.
++        Environment.SetEnvironmentVariable("Jwt__Key", TestJwtKey);
++        Environment.SetEnvironmentVariable("ConnectionStrings__DefaultConnection",
++            "Host=127.0.0.1;Port=1;Database=test;Username=test;Password=test;Timeout=1;Command Timeout=1");
++        Environment.SetEnvironmentVariable("Skydropx__Parcel__TareWeightKg", "0.5");
++    }
++
++    protected override void ConfigureWebHost(IWebHostBuilder builder)
++    {
++        builder.UseEnvironment("Testing");
++        builder.ConfigureTestServices(services =>
++        {
++            var dbServices = services.Where(d =>
++                d.ServiceType == typeof(AppDbContext) ||
++                d.ServiceType == typeof(DbContextOptions) ||
++                d.ServiceType == typeof(DbContextOptions<AppDbContext>) ||
++                (d.ServiceType.IsGenericType &&
++                 d.ServiceType.Name.StartsWith("IDbContextOptionsConfiguration") &&
++                 d.ServiceType.GetGenericArguments().Contains(typeof(AppDbContext)))).ToList();
++            foreach (var descriptor in dbServices)
++                services.Remove(descriptor);
++            services.AddDbContext<AppDbContext>(options => options.UseInMemoryDatabase(_dbName));
++
++            foreach (var descriptor in services.Where(d =>
++                         d.ServiceType == typeof(ISkydropxClient) || d.ServiceType == typeof(IMexicoPostalService)).ToList())
++                services.Remove(descriptor);
++            services.AddSingleton<ISkydropxClient>(Skydropx);
++            services.AddSingleton<IMexicoPostalService>(Postal);
++        });
++    }
++
++    public void EnsureSeeded()
++    {
++        lock (_seedLock)
++        {
++            if (_seeded)
++                return;
++
++            using var scope = Services.CreateScope();
++            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
++            db.Productos.AddRange(
++                new Producto { Id = 100, Nombre = "Arnés", Precio = 100m, Stock = 5, CategoriaId = 1, Imagen = "a.png", PesoKg = 0.8m },
++                new Producto { Id = 101, Nombre = "Producto sin peso", Precio = 50m, Stock = 5, CategoriaId = 1, Imagen = "b.png", PesoKg = null });
++            db.SaveChanges();
++            _seeded = true;
++        }
++    }
++
++    public string CreateToken(int userId = 7)
++    {
++        using var scope = Services.CreateScope();
++        return scope.ServiceProvider.GetRequiredService<IJwtService>().GenerateToken(
++            new User { Id = userId, Nombre = "Cliente de prueba", email = "cliente@test.local", Rol = "Cliente" });
++    }
++
++    /// <summary>JWT con firma de otra clave: debe rechazarse con 401.</summary>
++    public static string CreateTokenSignedWithWrongKey()
++    {
++        var descriptor = new SecurityTokenDescriptor
++        {
++            Subject = new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, "7") }),
++            Issuer = "mascotitas",
++            Audience = "mascotitas",
++            Expires = DateTime.UtcNow.AddHours(1),
++            SigningCredentials = new SigningCredentials(
++                new SymmetricSecurityKey(Encoding.UTF8.GetBytes("otra-clave-distinta-0123456789-0123456789-zzzzzz")),
++                SecurityAlgorithms.HmacSha256)
++        };
++        return new JsonWebTokenHandler().CreateToken(descriptor);
++    }
++}
++
++public sealed class FakeSkydropxClient : ISkydropxClient
++{
++    public Func<Task<ResultadoCotizacionSkydropx>> Behavior { get; set; } = DefaultBehavior;
++    public DireccionCotizacion? LastDestino { get; private set; }
++    public decimal? LastPesoKg { get; private set; }
++    public int Calls { get; private set; }
++
++    public static Task<ResultadoCotizacionSkydropx> DefaultBehavior() => Task.FromResult(
++        new ResultadoCotizacionSkydropx("quotation-test",
++        [
++            new TarifaEnvio("rate-1", "Estafeta", "Terrestre", 120.50m, "MXN", 3),
++            new TarifaEnvio("rate-2", "DHL", "Express", 210m, "MXN", null)
++        ]));
++
++    public void Reset()
++    {
++        Behavior = DefaultBehavior;
++        LastDestino = null;
++        LastPesoKg = null;
++        Calls = 0;
++    }
++
++    public Task<ResultadoCotizacionSkydropx> CotizarAsync(DireccionCotizacion destino, decimal pesoKg, CancellationToken cancellationToken)
++    {
++        Calls++;
++        LastDestino = destino;
++        LastPesoKg = pesoKg;
++        return Behavior();
++    }
++}
++
++public sealed class FakePostalService : IMexicoPostalService
++{
++    public Func<Task<CodigoPostalMexicoResponse?>> Behavior { get; set; } = DefaultBehavior;
++
++    public static Task<CodigoPostalMexicoResponse?> DefaultBehavior() => Task.FromResult<CodigoPostalMexicoResponse?>(
++        new CodigoPostalMexicoResponse("44820", "Jalisco", "JAL", "Guadalajara", ["Figueroa"]));
++
++    public void Reset() => Behavior = DefaultBehavior;
++
++    public Task<CodigoPostalMexicoResponse?> BuscarAsync(string codigoPostal, CancellationToken cancellationToken) => Behavior();
++}
+diff --git a/Tests/EnvioEndpointTests.cs b/Tests/EnvioEndpointTests.cs
+new file mode 100644
+index 0000000..a7b907e
+--- /dev/null
++++ b/Tests/EnvioEndpointTests.cs
+@@ -0,0 +1,261 @@
++using System.Net;
++using System.Net.Http.Headers;
++using System.Net.Http.Json;
++using System.Text;
++using System.Text.Json;
++using back;
++using back.Payments;
++using Microsoft.Extensions.DependencyInjection;
++using Xunit;
++
++public class EnvioEndpointTests : IClassFixture<EnvioApiFactory>
++{
++    private const string Path = "/api/envios/cotizaciones";
++    private const string LocalOrigin = "http://localhost:4321";
++    private const string ProdOrigin = "https://mascotitas-pw.github.io";
++
++    private readonly EnvioApiFactory _factory;
++
++    public EnvioEndpointTests(EnvioApiFactory factory)
++    {
++        _factory = factory;
++        _factory.EnsureSeeded();
++        _factory.Skydropx.Reset();
++        _factory.Postal.Reset();
++    }
++
++    private static object ValidPayload(int productoId = 100, int cantidad = 2) => new
++    {
++        items = new[] { new { productoId, cantidad } },
++        codigoPostal = "44820",
++        estado = "Jalisco",
++        ciudad = "Guadalajara",
++        colonia = "Figueroa"
++    };
++
++    private Task<HttpResponseMessage> PostAsync(
++        HttpContent content, string? token, string origin = LocalOrigin)
++    {
++        var request = new HttpRequestMessage(HttpMethod.Post, Path) { Content = content };
++        request.Headers.Add("Origin", origin);
++        if (token is not null)
++            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
++        return _factory.CreateClient().SendAsync(request);
++    }
++
++    private Task<HttpResponseMessage> PostJsonAsync(object payload, string? token, string origin = LocalOrigin) =>
++        PostAsync(JsonContent.Create(payload), token, origin);
++
++    private static string? AllowOrigin(HttpResponseMessage response) =>
++        response.Headers.TryGetValues("Access-Control-Allow-Origin", out var values) ? values.FirstOrDefault() : null;
++
++    private static async Task<string> MessageAsync(HttpResponseMessage response)
++    {
++        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
++        return doc.RootElement.GetProperty("message").GetString() ?? "";
++    }
++
++    [Theory]
++    [InlineData(LocalOrigin)]
++    [InlineData(ProdOrigin)]
++    public async Task Cotizar_ValidAuthenticated_ReturnsQuoteWithIdAndRates(string origin)
++    {
++        var response = await PostJsonAsync(ValidPayload(), _factory.CreateToken(userId: 7), origin);
++
++        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
++        Assert.Equal(origin, AllowOrigin(response));
++
++        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
++        var root = doc.RootElement;
++        var id = root.GetProperty("id").GetGuid();
++        Assert.NotEqual(Guid.Empty, id);
++        Assert.True(root.TryGetProperty("venceUtc", out _));
++
++        // Contrato que consume el frontend (camelCase).
++        var tarifas = root.GetProperty("tarifas");
++        Assert.Equal(2, tarifas.GetArrayLength());
++        var primera = tarifas[0];
++        Assert.Equal("rate-1", primera.GetProperty("id").GetString());
++        Assert.Equal("Estafeta", primera.GetProperty("paqueteria").GetString());
++        Assert.Equal("Terrestre", primera.GetProperty("servicio").GetString());
++        Assert.Equal(120.50m, primera.GetProperty("importe").GetDecimal());
++        Assert.Equal("MXN", primera.GetProperty("moneda").GetString());
++        Assert.Equal(3, primera.GetProperty("diasEntrega").GetInt32());
++        Assert.Equal(JsonValueKind.Null, tarifas[1].GetProperty("diasEntrega").ValueKind);
++
++        // Peso = tara (0.5, configurada por el factory) + 0.8 kg * 2 piezas.
++        Assert.Equal(2.1m, _factory.Skydropx.LastPesoKg);
++        Assert.Equal("44820", _factory.Skydropx.LastDestino?.CodigoPostal);
++
++        using var scope = _factory.Services.CreateScope();
++        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
++        var guardada = db.CotizacionesEnvio.Single(c => c.Id == id);
++        Assert.Equal(7, guardada.UsuarioId);
++        Assert.Equal("quotation-test", guardada.SkydropxId);
++    }
++
++    [Fact]
++    public async Task Cotizar_WithoutToken_Returns401WithCors()
++    {
++        var response = await PostJsonAsync(ValidPayload(), token: null);
++
++        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
++        Assert.Equal(LocalOrigin, AllowOrigin(response));
++        Assert.Equal(0, _factory.Skydropx.Calls);
++    }
++
++    [Theory]
++    [InlineData("esto-no-es-un-jwt")]
++    public async Task Cotizar_WithMalformedToken_Returns401(string token)
++    {
++        var response = await PostJsonAsync(ValidPayload(), token);
++
++        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
++        Assert.Equal(LocalOrigin, AllowOrigin(response));
++    }
++
++    [Fact]
++    public async Task Cotizar_WithTokenSignedByAnotherKey_Returns401()
++    {
++        var response = await PostJsonAsync(ValidPayload(), EnvioApiFactory.CreateTokenSignedWithWrongKey());
++
++        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
++        Assert.Equal(LocalOrigin, AllowOrigin(response));
++    }
++
++    public static TheoryData<string> InvalidPayloads => new()
++    {
++        """{"items":[{"productoId":100,"cantidad":1}],"codigoPostal":"448","estado":"Jalisco","ciudad":"Guadalajara","colonia":"Figueroa"}""",
++        """{"items":[{"productoId":100,"cantidad":1}],"codigoPostal":"44820","estado":"Jalisco","ciudad":"Guadalajara","colonia":""}""",
++        """{"items":[],"codigoPostal":"44820","estado":"Jalisco","ciudad":"Guadalajara","colonia":"Figueroa"}""",
++        """{"codigoPostal":"44820","estado":"Jalisco","ciudad":"Guadalajara","colonia":"Figueroa"}""",
++        """{"items":[{"productoId":100,"cantidad":0}],"codigoPostal":"44820","estado":"Jalisco","ciudad":"Guadalajara","colonia":"Figueroa"}""",
++        """{"items":[{"productoId":100,"cantidad":-2}],"codigoPostal":"44820","estado":"Jalisco","ciudad":"Guadalajara","colonia":"Figueroa"}""",
++        """{"items":[{"productoId":0,"cantidad":1}],"codigoPostal":"44820","estado":"Jalisco","ciudad":"Guadalajara","colonia":"Figueroa"}""",
++        """{"items":[{"productoId":100,"cantidad":2147483647},{"productoId":100,"cantidad":2147483647}],"codigoPostal":"44820","estado":"Jalisco","ciudad":"Guadalajara","colonia":"Figueroa"}""",
++        """{"items":[{"productoId":999999,"cantidad":1}],"codigoPostal":"44820","estado":"Jalisco","ciudad":"Guadalajara","colonia":"Figueroa"}""",
++        """{"items":[{"productoId":101,"cantidad":1}],"codigoPostal":"44820","estado":"Jalisco","ciudad":"Guadalajara","colonia":"Figueroa"}"""
++    };
++
++    [Theory]
++    [MemberData(nameof(InvalidPayloads))]
++    public async Task Cotizar_InvalidPayload_Returns400WithUsefulMessageAndCors(string json)
++    {
++        var response = await PostAsync(
++            new StringContent(json, Encoding.UTF8, "application/json"), _factory.CreateToken());
++
++        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
++        Assert.Equal(LocalOrigin, AllowOrigin(response));
++        Assert.False(string.IsNullOrWhiteSpace(await MessageAsync(response)));
++        Assert.Equal(0, _factory.Skydropx.Calls);
++    }
++
++    [Theory]
++    [InlineData("{no es json")]
++    [InlineData("")]
++    public async Task Cotizar_MalformedOrEmptyBody_Returns400NotServerError(string body)
++    {
++        var response = await PostAsync(
++            new StringContent(body, Encoding.UTF8, "application/json"), _factory.CreateToken());
++
++        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
++        Assert.Equal(LocalOrigin, AllowOrigin(response));
++    }
++
++    [Fact]
++    public async Task Cotizar_UnknownPostalCode_Returns404()
++    {
++        _factory.Postal.Behavior = () => Task.FromResult<CodigoPostalMexicoResponse?>(null);
++
++        var response = await PostJsonAsync(ValidPayload(), _factory.CreateToken());
++
++        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
++        Assert.Equal(LocalOrigin, AllowOrigin(response));
++        Assert.Equal(0, _factory.Skydropx.Calls);
++    }
++
++    [Theory]
++    [InlineData(typeof(SkydropxProviderException), 502)]
++    [InlineData(typeof(SkydropxConfigurationException), 503)]
++    [InlineData(typeof(HttpRequestException), 502)]
++    [InlineData(typeof(TimeoutException), 504)]
++    [InlineData(typeof(JsonException), 502)]
++    public async Task Cotizar_ProviderFailure_ReturnsControlledStatusWithoutLeakingDetails(Type exceptionType, int expectedStatus)
++    {
++        const string internalDetail = "Falta Skydropx:ClientSecret en el servidor interno";
++        _factory.Skydropx.Behavior = () =>
++        {
++            if (exceptionType == typeof(SkydropxProviderException))
++                throw new SkydropxProviderException("Skydropx no pudo crear la cotización.", 502);
++            throw (Exception)Activator.CreateInstance(exceptionType, internalDetail)!;
++        };
++
++        var response = await PostJsonAsync(ValidPayload(), _factory.CreateToken());
++        var body = await response.Content.ReadAsStringAsync();
++
++        Assert.Equal(expectedStatus, (int)response.StatusCode);
++        Assert.Equal(LocalOrigin, AllowOrigin(response));
++        Assert.DoesNotContain("ClientSecret", body);
++        Assert.DoesNotContain(" at ", body);
++    }
++
++    [Theory]
++    [InlineData(LocalOrigin)]
++    [InlineData(ProdOrigin)]
++    public async Task Cotizar_UnexpectedException_Returns500WithCorsHeadersAndNoDetails(string origin)
++    {
++        _factory.Skydropx.Behavior = () => throw new InvalidCastException("detalle-interno-secreto");
++
++        var response = await PostJsonAsync(ValidPayload(), _factory.CreateToken(), origin);
++        var body = await response.Content.ReadAsStringAsync();
++
++        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
++        Assert.Equal(origin, AllowOrigin(response));
++        Assert.DoesNotContain("detalle-interno-secreto", body);
++        Assert.DoesNotContain("InvalidCastException", body);
++        Assert.False(string.IsNullOrWhiteSpace(await MessageAsync(response)));
++    }
++
++    [Fact]
++    public async Task Cotizar_UnexpectedExceptionInPostalService_Returns500WithCors()
++    {
++        _factory.Postal.Behavior = () => throw new NullReferenceException("detalle-interno-secreto");
++
++        var response = await PostJsonAsync(ValidPayload(), _factory.CreateToken(), ProdOrigin);
++
++        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
++        Assert.Equal(ProdOrigin, AllowOrigin(response));
++        Assert.DoesNotContain("detalle-interno-secreto", await response.Content.ReadAsStringAsync());
++    }
++
++    [Fact]
++    public async Task Cotizar_DisallowedOrigin_DoesNotGetCorsHeaders()
++    {
++        _factory.Skydropx.Behavior = () => throw new InvalidCastException("x");
++
++        var response = await PostJsonAsync(ValidPayload(), _factory.CreateToken(), "https://evil.example");
++
++        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
++        Assert.Null(AllowOrigin(response)); // ni '*' ni el origen ajeno
++    }
++
++    [Theory]
++    [InlineData(LocalOrigin)]
++    [InlineData(ProdOrigin)]
++    public async Task Preflight_AllowsPostAuthorizationAndContentType(string origin)
++    {
++        var request = new HttpRequestMessage(HttpMethod.Options, Path);
++        request.Headers.Add("Origin", origin);
++        request.Headers.Add("Access-Control-Request-Method", "POST");
++        request.Headers.Add("Access-Control-Request-Headers", "authorization,content-type");
++
++        var response = await _factory.CreateClient().SendAsync(request);
++
++        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
++        Assert.Equal(origin, AllowOrigin(response));
++        Assert.Contains("POST", string.Join(",", response.Headers.GetValues("Access-Control-Allow-Methods")));
++        var allowedHeaders = string.Join(",", response.Headers.GetValues("Access-Control-Allow-Headers")).ToLowerInvariant();
++        Assert.Contains("authorization", allowedHeaders);
++        Assert.Contains("content-type", allowedHeaders);
++    }
++}
+diff --git a/Tests/MercadoPagoPaymentServiceTests.cs b/Tests/MercadoPagoPaymentServiceTests.cs
+index 81da9f0..29afd17 100644
+--- a/Tests/MercadoPagoPaymentServiceTests.cs
++++ b/Tests/MercadoPagoPaymentServiceTests.cs
+@@ -159,16 +159,6 @@ public class MercadoPagoPaymentServiceTests
+             CategoriaId = 1,
+             Imagen = "croquetas.png"
+         });
+-        context.Cotizaciones.Add(new Cotizacion
+-        {
+-            Id = CotizacionId,
+-            UsuarioId = 1,
+-            ProductoId = 1,
+-            FechaCreacion = DateTime.UtcNow,
+-            FechaExpiracion = DateTime.UtcNow.AddDays(1),
+-            Precio = 350.00m,
+-            Activa = true
+-        });
+         context.CotizacionesEnvio.Add(new CotizacionEnvio
+         {
+             Id = CotizacionId,
+diff --git a/Tests/MexicoPostalServiceTests.cs b/Tests/MexicoPostalServiceTests.cs
+new file mode 100644
+index 0000000..544164e
+--- /dev/null
++++ b/Tests/MexicoPostalServiceTests.cs
+@@ -0,0 +1,63 @@
++using System.Net;
++using System.Text;
++using back.Payments;
++using Microsoft.Extensions.Logging.Abstractions;
++using Xunit;
++
++public class MexicoPostalServiceTests
++{
++    private const string ZippopotamResponse =
++        """{"places":[{"place name":"Figueroa","state":"Jalisco","state abbreviation":"JAL"}]}""";
++
++    [Fact]
++    public async Task BuscarAsync_WhenProviderReturns404_ReturnsNull()
++    {
++        var service = CreateService(_ => Json("{}", HttpStatusCode.NotFound));
++
++        Assert.Null(await service.BuscarAsync("00000", default));
++    }
++
++    [Fact]
++    public async Task BuscarAsync_WhenProviderFails_ThrowsInsteadOfReportingMissingPostalCode()
++    {
++        var service = CreateService(_ => Json("{}", HttpStatusCode.ServiceUnavailable));
++
++        await Assert.ThrowsAsync<HttpRequestException>(() => service.BuscarAsync("44820", default));
++    }
++
++    [Fact]
++    public async Task BuscarAsync_WhenCityLookupFails_FallsBackToState()
++    {
++        var service = CreateService(request => request.RequestUri!.Host.Contains("zippopotam")
++            ? Json(ZippopotamResponse)
++            : throw new HttpRequestException("nominatim no disponible"));
++
++        var result = await service.BuscarAsync("44820", default);
++
++        Assert.NotNull(result);
++        Assert.Equal("Jalisco", result!.Ciudad);
++        Assert.Contains("Figueroa", result.Colonias);
++    }
++
++    [Fact]
++    public async Task BuscarAsync_UsesCityFromNominatimWhenAvailable()
++    {
++        var service = CreateService(request => request.RequestUri!.Host.Contains("zippopotam")
++            ? Json(ZippopotamResponse)
++            : Json("""[{"address":{"city":"Guadalajara"}}]"""));
++
++        Assert.Equal("Guadalajara", (await service.BuscarAsync("44820", default))?.Ciudad);
++    }
++
++    private static HttpResponseMessage Json(string body, HttpStatusCode status = HttpStatusCode.OK) =>
++        new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
++
++    private static MexicoPostalService CreateService(Func<HttpRequestMessage, HttpResponseMessage> handler) =>
++        new(new HttpClient(new FuncHandler(handler)), NullLogger<MexicoPostalService>.Instance);
++
++    private sealed class FuncHandler(Func<HttpRequestMessage, HttpResponseMessage> handler) : HttpMessageHandler
++    {
++        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
++            Task.FromResult(handler(request));
++    }
++}
+diff --git a/Tests/SkydropxClientResponseTests.cs b/Tests/SkydropxClientResponseTests.cs
+new file mode 100644
+index 0000000..44adecd
+--- /dev/null
++++ b/Tests/SkydropxClientResponseTests.cs
+@@ -0,0 +1,155 @@
++using System.Net;
++using System.Text;
++using System.Text.Json;
++using back.Payments;
++using Microsoft.Extensions.Caching.Memory;
++using Microsoft.Extensions.Configuration;
++using Microsoft.Extensions.Logging.Abstractions;
++using Xunit;
++
++public class SkydropxClientResponseTests
++{
++    private static readonly DireccionCotizacion Destino = new("44820", "Jalisco", "Guadalajara", "Figueroa");
++
++    [Fact]
++    public async Task CotizarAsync_ValidResponse_MapsRates()
++    {
++        var client = CreateClient(Provider(Quotation(RateJson(days: "3"))));
++
++        var result = await client.CotizarAsync(Destino, 2m, default);
++
++        Assert.Equal("q1", result.Id);
++        var rate = Assert.Single(result.Tarifas);
++        Assert.Equal(("r1", "Estafeta", "Terrestre", 150.50m, "MXN", 3),
++            (rate.Id, rate.Paqueteria, rate.Servicio, rate.Importe, rate.Moneda, rate.DiasEntrega));
++    }
++
++    [Fact]
++    public async Task CotizarAsync_WhenDaysIsNull_DoesNotThrowAndLeavesDaysEmpty()
++    {
++        // JsonElement.TryGetInt32 lanza InvalidOperationException con null/texto.
++        var client = CreateClient(Provider(Quotation(RateJson(days: "null"))));
++
++        var result = await client.CotizarAsync(Destino, 2m, default);
++
++        Assert.Null(Assert.Single(result.Tarifas).DiasEntrega);
++    }
++
++    [Fact]
++    public async Task CotizarAsync_WhenTotalIsNumberAndDaysIsText_ParsesBoth()
++    {
++        var rate = """{"id":"r2","success":true,"provider_display_name":"FedEx","provider_service_name":"Std","total":99.9,"days":"2"}""";
++        var client = CreateClient(Provider(Quotation(rate)));
++
++        var tarifa = Assert.Single((await client.CotizarAsync(Destino, 2m, default)).Tarifas);
++
++        Assert.Equal(99.9m, tarifa.Importe);
++        Assert.Equal(2, tarifa.DiasEntrega);
++    }
++
++    [Theory]
++    [InlineData("[1,2,3]")]
++    [InlineData("\"texto\"")]
++    public async Task CotizarAsync_WhenProviderReturnsNonObject_ThrowsProviderException(string body)
++    {
++        var client = CreateClient(Provider(body));
++
++        await Assert.ThrowsAsync<SkydropxProviderException>(() => client.CotizarAsync(Destino, 2m, default));
++    }
++
++    [Fact]
++    public async Task CotizarAsync_WhenProviderReturnsHtml_ThrowsJsonException()
++    {
++        var client = CreateClient(Provider("<html>oops</html>"));
++
++        await Assert.ThrowsAnyAsync<JsonException>(() => client.CotizarAsync(Destino, 2m, default));
++    }
++
++    [Theory]
++    [InlineData(HttpStatusCode.Unauthorized, 503)]
++    [InlineData(HttpStatusCode.TooManyRequests, 503)]
++    [InlineData(HttpStatusCode.InternalServerError, 502)]
++    [InlineData(HttpStatusCode.UnprocessableEntity, 502)]
++    public async Task CotizarAsync_MapsProviderStatusAndHidesRawBody(HttpStatusCode providerStatus, int expected)
++    {
++        var client = CreateClient(_ => Json("detalle-crudo-del-proveedor", providerStatus));
++
++        var ex = await Assert.ThrowsAsync<SkydropxProviderException>(() => client.CotizarAsync(Destino, 2m, default));
++
++        Assert.Equal(expected, ex.StatusCode);
++        Assert.DoesNotContain("detalle-crudo", ex.Message);
++    }
++
++    [Fact]
++    public async Task CotizarAsync_On401_EvictsCachedToken()
++    {
++        var cache = new MemoryCache(new MemoryCacheOptions());
++        cache.Set("Skydropx.AccessToken", "token-viejo", TimeSpan.FromHours(1));
++        var client = CreateClient(_ => Json("{}", HttpStatusCode.Unauthorized), cache: cache);
++
++        await Assert.ThrowsAsync<SkydropxProviderException>(() => client.CotizarAsync(Destino, 2m, default));
++
++        Assert.False(cache.TryGetValue("Skydropx.AccessToken", out _));
++    }
++
++    [Theory]
++    [InlineData("Skydropx:Parcel:LengthCm", "30,5")]
++    [InlineData("Skydropx:Parcel:WidthCm", "abc")]
++    public async Task CotizarAsync_WhenParcelSettingIsNotANumber_ThrowsConfigurationException(string key, string value)
++    {
++        // "30,5" no debe leerse como 305 (coma como separador de miles).
++        var client = CreateClient(Provider(Quotation(RateJson("3"))), new() { [key] = value });
++
++        await Assert.ThrowsAsync<SkydropxConfigurationException>(() => client.CotizarAsync(Destino, 2m, default));
++    }
++
++    private static string RateJson(string days) =>
++        $$"""{"id":"r1","success":true,"provider_display_name":"Estafeta","provider_service_name":"Terrestre","total":"150.50","currency_code":"MXN","days":{{days}}}""";
++
++    private static string Quotation(string rate) => $$"""{"is_completed":true,"rates":[{{rate}}]}""";
++
++    private static Func<HttpRequestMessage, HttpResponseMessage> Provider(string quotationBody) => request =>
++    {
++        var path = request.RequestUri!.AbsolutePath;
++        if (path.EndsWith("/oauth/token")) return Json("""{"access_token":"t","expires_in":7200}""");
++        if (request.Method == HttpMethod.Post) return Json("""{"id":"q1"}""");
++        return Json(quotationBody);
++    };
++
++    private static HttpResponseMessage Json(string body, HttpStatusCode status = HttpStatusCode.OK) =>
++        new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
++
++    private static SkydropxClient CreateClient(
++        Func<HttpRequestMessage, HttpResponseMessage> handler,
++        Dictionary<string, string?>? overrides = null,
++        IMemoryCache? cache = null)
++    {
++        var values = new Dictionary<string, string?>
++        {
++            ["Skydropx:BaseUrl"] = "https://sandbox.example.test",
++            ["Skydropx:ClientId"] = "test-client",
++            ["Skydropx:ClientSecret"] = "test-secret",
++            ["Skydropx:Origin:PostalCode"] = "44100",
++            ["Skydropx:Origin:State"] = "Jalisco",
++            ["Skydropx:Origin:City"] = "Guadalajara",
++            ["Skydropx:Origin:Neighborhood"] = "Centro",
++            ["Skydropx:Parcel:LengthCm"] = "30",
++            ["Skydropx:Parcel:WidthCm"] = "20",
++            ["Skydropx:Parcel:HeightCm"] = "10"
++        };
++        if (overrides is not null)
++            foreach (var item in overrides) values[item.Key] = item.Value;
++
++        return new SkydropxClient(
++            new HttpClient(new FuncHandler(handler)),
++            new ConfigurationBuilder().AddInMemoryCollection(values).Build(),
++            cache ?? new MemoryCache(new MemoryCacheOptions()),
++            NullLogger<SkydropxClient>.Instance);
++    }
++
++    private sealed class FuncHandler(Func<HttpRequestMessage, HttpResponseMessage> handler) : HttpMessageHandler
++    {
++        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
++            Task.FromResult(handler(request));
++    }
++}
+diff --git a/Tests/back.Tests.csproj b/Tests/back.Tests.csproj
+index 7f4a3f0..8be8bba 100644
+--- a/Tests/back.Tests.csproj
++++ b/Tests/back.Tests.csproj
+@@ -8,6 +8,7 @@
+   </PropertyGroup>
+ 
+   <ItemGroup>
++    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.13" />
+     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.12" />
+     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+     <PackageReference Include="xunit" Version="2.9.2" />

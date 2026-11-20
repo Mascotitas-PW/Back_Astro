@@ -9,7 +9,12 @@ public sealed record CodigoPostalMexicoResponse(
     string Ciudad,
     IReadOnlyList<string> Colonias);
 
-public sealed class MexicoPostalService(HttpClient httpClient)
+public interface IMexicoPostalService
+{
+    Task<CodigoPostalMexicoResponse?> BuscarAsync(string codigoPostal, CancellationToken cancellationToken);
+}
+
+public sealed class MexicoPostalService(HttpClient httpClient, ILogger<MexicoPostalService> logger) : IMexicoPostalService
 {
     public async Task<CodigoPostalMexicoResponse?> BuscarAsync(
         string codigoPostal,
@@ -21,13 +26,19 @@ public sealed class MexicoPostalService(HttpClient httpClient)
 
         using var response = await httpClient.GetAsync(
             $"https://api.zippopotam.us/MX/{cp}", cancellationToken);
-        if (!response.IsSuccessStatusCode)
+        // 404 = el código postal no existe. Cualquier otro fallo del servicio es un error del proveedor
+        // (HttpRequestException → 502), no "código postal no encontrado".
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             return null;
+        response.EnsureSuccessStatusCode();
 
         using var document = await JsonDocument.ParseAsync(
             await response.Content.ReadAsStreamAsync(cancellationToken),
             cancellationToken: cancellationToken);
         var root = document.RootElement;
+
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new JsonException("Respuesta inesperada del servicio de códigos postales.");
 
         if (!root.TryGetProperty("places", out var places) ||
             places.ValueKind != JsonValueKind.Array)
@@ -62,7 +73,20 @@ public sealed class MexicoPostalService(HttpClient httpClient)
             return null;
 
         var listaColonias = colonias.ToArray();
-        var ciudad = await BuscarCiudadAsync(cp, cancellationToken) ?? estado;
+        // La ciudad viene de Nominatim, que es opcional: si falla o tarda, se usa el estado en lugar de
+        // convertir una caída de ese servicio en un error de la cotización.
+        string? ciudadEncontrada = null;
+        try
+        {
+            ciudadEncontrada = await BuscarCiudadAsync(cp, cancellationToken);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException ||
+                                   (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
+        {
+            logger.LogWarning(ex, "No se pudo resolver la ciudad del código postal {CodigoPostal}; se usará el estado.", cp);
+        }
+
+        var ciudad = ciudadEncontrada ?? estado;
         return new CodigoPostalMexicoResponse(cp, estado, estadoAbreviado, ciudad, listaColonias);
     }
 

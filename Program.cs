@@ -8,6 +8,7 @@ using HotChocolate;
 
 using back;
 using back.GraphQL;
+using back.Http;
 using back.Payments;
 using back.Payments.PayPal;
 using back.Services;
@@ -31,7 +32,7 @@ else
     builder.Services.AddSingleton<IImageService, ImageService>();
 builder.Services.AddScoped<PedidoService>();
 builder.Services.AddMemoryCache();
-builder.Services.AddHttpClient<SkydropxClient>(client =>
+builder.Services.AddHttpClient<ISkydropxClient, SkydropxClient>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(30);
 });
@@ -47,7 +48,7 @@ builder.Services.AddHttpClient<PayPalPaymentService>(client =>
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
-builder.Services.AddHttpClient<MexicoPostalService>(client =>
+builder.Services.AddHttpClient<IMexicoPostalService, MexicoPostalService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(10);
 });
@@ -127,27 +128,13 @@ builder.Services
 var app = builder.Build();
 
 
+// Debe ir primero: captura excepciones de cualquier middleware/endpoint, las registra y responde 500
+// genérico. Sin handler, el 500 sale sin headers CORS y el navegador lo muestra como error CORS.
+app.UseApiExceptionHandler();
+
 app.UseResponseCompression();
 
 app.UseCors("AllowReact");
-
-app.UseExceptionHandler(errorApp =>
-{
-    errorApp.Run(async context =>
-    {
-        var exceptionFeature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
-        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
-        if (exceptionFeature?.Error is not null)
-            logger.LogError(exceptionFeature.Error, "Error inesperado procesando {Method} {Path}", context.Request.Method, context.Request.Path);
-
-        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
-        context.Response.ContentType = "application/json";
-        await context.Response.WriteAsJsonAsync(new
-        {
-            message = "Ocurrió un error inesperado. Inténtalo nuevamente."
-        });
-    });
-});
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -305,13 +292,28 @@ using (var scope = app.Services.CreateScope())
 
 app.MapGet("/api/codigos-postales/{codigoPostal}", async (
     string codigoPostal,
-    MexicoPostalService postalService,
+    IMexicoPostalService postalService,
+    ILogger<Program> logger,
     CancellationToken cancellationToken) =>
 {
-    var resultado = await postalService.BuscarAsync(codigoPostal, cancellationToken);
-    return resultado is null
-        ? Results.NotFound(new { message = "Código postal no encontrado." })
-        : Results.Ok(resultado);
+    try
+    {
+        var resultado = await postalService.BuscarAsync(codigoPostal, cancellationToken);
+        return resultado is null
+            ? Results.NotFound(new { message = "Código postal no encontrado." })
+            : Results.Ok(resultado);
+    }
+    catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException ||
+                               (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
+    {
+        logger.LogWarning(ex, "El servicio de códigos postales no respondió correctamente.");
+        return Results.Json(
+            new { message = "No se pudo consultar el servicio de códigos postales." },
+            statusCode: StatusCodes.Status502BadGateway);
+    }
 });
 
 app.Run();
+
+// Necesario para WebApplicationFactory<Program> en las pruebas de integración.
+public partial class Program;
