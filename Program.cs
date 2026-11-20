@@ -229,7 +229,7 @@ using (var scope = app.Services.CreateScope())
             "ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"Latitud\" double precision NULL");
         await db.Database.ExecuteSqlRawAsync(
             "ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"Longitud\" double precision NULL");
-        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Producto\" ADD COLUMN IF NOT EXISTS \"PesoKg\" numeric NULL");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Productos\" ADD COLUMN IF NOT EXISTS \"PesoKg\" numeric NULL");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"CodigoPostalEntrega\" text NULL");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"EstadoEntrega\" text NULL");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"CiudadEntrega\" text NULL");
