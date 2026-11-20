@@ -23,6 +23,7 @@ namespace back.Models
         public string Nombre { get; set; } = string.Empty;
         public int Unidades { get; set; }
         public decimal Ingresos { get; set; }
+        public decimal? PesoKg { get; set; }
     }
 
     public class VentaCategoriaDto
