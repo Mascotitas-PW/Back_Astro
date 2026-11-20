@@ -25,7 +25,7 @@ public class MercadoPagoPaymentServiceTests
             {
               "id": 987654321,
               "status": "approved",
-              "transaction_amount": 350.00,
+              "transaction_amount": 799.00,
               "currency_id": "MXN"
             }
             """)
@@ -40,15 +40,15 @@ public class MercadoPagoPaymentServiceTests
             Items: [new ProcessOrderItem(1, 2)],
             IssuerId: null,
             Payer: null,
-            CotizacionEnvioId: null,
-            RateId: null);
+            CotizacionEnvioId: CotizacionId,
+            RateId: RateId);
 
         var result = await service.ProcessAsync(request);
 
         Assert.Equal("approved", result.Status);
         Assert.Equal(987654321, result.Id);
         Assert.Equal("tok_test_123", handler.LastRequestBody?.RootElement.GetProperty("token").GetString());
-        Assert.Equal(350m, handler.LastRequestBody?.RootElement.GetProperty("transaction_amount").GetDecimal());
+        Assert.Equal(799m, handler.LastRequestBody?.RootElement.GetProperty("transaction_amount").GetDecimal());
     }
 
     [Fact]
@@ -75,8 +75,8 @@ public class MercadoPagoPaymentServiceTests
             Items: [new ProcessOrderItem(1, 1)],
             IssuerId: null,
             Payer: null,
-            CotizacionEnvioId: null,
-            RateId: null);
+            CotizacionEnvioId: CotizacionId,
+            RateId: RateId);
 
         var result = await service.ProcessAsync(request);
 
@@ -126,8 +126,8 @@ public class MercadoPagoPaymentServiceTests
             Items: [new ProcessOrderItem(1, 1)],
             IssuerId: null,
             Payer: null,
-            CotizacionEnvioId: null,
-            RateId: null);
+            CotizacionEnvioId: CotizacionId,
+            RateId: RateId);
 
         var result = await service.ProcessAsync(request);
 
