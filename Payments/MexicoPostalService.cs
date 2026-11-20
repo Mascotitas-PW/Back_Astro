@@ -62,7 +62,97 @@ public sealed class MexicoPostalService(HttpClient httpClient)
             return null;
 
         var listaColonias = colonias.ToArray();
-        var ciudad = listaColonias.Length == 1 ? listaColonias[0] : estado;
+        var ciudad = await BuscarCiudadAsync(cp, cancellationToken) ?? estado;
         return new CodigoPostalMexicoResponse(cp, estado, estadoAbreviado, ciudad, listaColonias);
+    }
+
+    private async Task<string?> BuscarCiudadAsync(
+        string codigoPostal,
+        CancellationToken cancellationToken)
+    {
+        using var searchRequest = new HttpRequestMessage(
+            HttpMethod.Get,
+            "https://nominatim.openstreetmap.org/search?" +
+            "postalcode=" + Uri.EscapeDataString(codigoPostal) +
+            "&countrycodes=mx&format=jsonv2&addressdetails=1&accept-language=es&limit=5");
+        searchRequest.Headers.TryAddWithoutValidation("User-Agent", "Mascotitas-Backend/1.0");
+
+        using var searchResponse = await httpClient.SendAsync(searchRequest, cancellationToken);
+        if (!searchResponse.IsSuccessStatusCode)
+            return null;
+
+        using var searchDocument = await JsonDocument.ParseAsync(
+            await searchResponse.Content.ReadAsStreamAsync(cancellationToken),
+            cancellationToken: cancellationToken);
+
+        if (searchDocument.RootElement.ValueKind != JsonValueKind.Array)
+            return null;
+
+        foreach (var place in searchDocument.RootElement.EnumerateArray())
+        {
+            var addressCity = LeerDireccion(place, "city", "town", "municipality", "village", "county", "borough");
+            if (!string.IsNullOrWhiteSpace(addressCity))
+                return addressCity;
+
+            if (!place.TryGetProperty("lat", out var latValue) ||
+                !place.TryGetProperty("lon", out var lonValue) ||
+                latValue.ValueKind != JsonValueKind.String ||
+                lonValue.ValueKind != JsonValueKind.String)
+                continue;
+
+            var ciudadInvertida = await BuscarCiudadInversaAsync(
+                latValue.GetString(), lonValue.GetString(), cancellationToken);
+            if (!string.IsNullOrWhiteSpace(ciudadInvertida))
+                return ciudadInvertida;
+        }
+
+        return null;
+    }
+
+    private async Task<string?> BuscarCiudadInversaAsync(
+        string? latitud,
+        string? longitud,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(latitud) || string.IsNullOrWhiteSpace(longitud))
+            return null;
+
+        using var reverseRequest = new HttpRequestMessage(
+            HttpMethod.Get,
+            "https://nominatim.openstreetmap.org/reverse?" +
+            "lat=" + Uri.EscapeDataString(latitud) +
+            "&lon=" + Uri.EscapeDataString(longitud) +
+            "&format=jsonv2&addressdetails=1&accept-language=es&zoom=10");
+        reverseRequest.Headers.TryAddWithoutValidation("User-Agent", "Mascotitas-Backend/1.0");
+
+        using var reverseResponse = await httpClient.SendAsync(reverseRequest, cancellationToken);
+        if (!reverseResponse.IsSuccessStatusCode)
+            return null;
+
+        using var reverseDocument = await JsonDocument.ParseAsync(
+            await reverseResponse.Content.ReadAsStreamAsync(cancellationToken),
+            cancellationToken: cancellationToken);
+
+        return LeerDireccion(reverseDocument.RootElement, "city", "town", "municipality", "village", "county", "borough");
+    }
+
+    private static string? LeerDireccion(JsonElement place, params string[] propiedades)
+    {
+        if (!place.TryGetProperty("address", out var address) ||
+            address.ValueKind != JsonValueKind.Object)
+            return null;
+
+        foreach (var propiedad in propiedades)
+        {
+            if (address.TryGetProperty(propiedad, out var value) &&
+                value.ValueKind == JsonValueKind.String)
+            {
+                var texto = value.GetString()?.Trim();
+                if (!string.IsNullOrWhiteSpace(texto))
+                    return texto;
+            }
+        }
+
+        return null;
     }
 }
