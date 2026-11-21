@@ -45,7 +45,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Domicilio>().ToTable("Domicilio");
         modelBuilder.Entity<CotizacionEnvio>().ToTable("CotizacionEnvio");
         modelBuilder.Entity<AceptacionLegal>().ToTable("AceptacionLegal");
-        modelBuilder.Entity<Factura>().ToTable("Factura");
+        modelBuilder.Entity<Factura>(e =>
+        {
+            e.ToTable("Factura");
+            e.Property(f => f.FechaEmision).HasColumnType("timestamp without time zone");
+        });
         modelBuilder.Entity<DatosFiscalesCliente>().ToTable("DatosFiscalesCliente");
 
         modelBuilder.Entity<Categoria>().HasData(
