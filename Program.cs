@@ -6,6 +6,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using HotChocolate;
 
+using back.Services.Factura;
 using back;
 using back.GraphQL;
 using back.Http;
@@ -51,6 +52,11 @@ builder.Services.AddHttpClient<PayPalPaymentService>(client =>
 builder.Services.AddHttpClient<IMexicoPostalService, MexicoPostalService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(10);
+});
+
+builder.Services.AddHttpClient<FacturacionService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
 });
 
 builder.Services.Configure<FormOptions>(options =>
@@ -112,6 +118,8 @@ builder.Services
     .AddMutationType<Mutation>()
     .AddTypeExtension<ProductMutation>()
     .AddTypeExtension<PedidoMutation>()
+    .AddTypeExtension<FacturaQueries>()     
+    .AddTypeExtension<FacturaMutation>()
     .AddTypeExtension<DomicilioMutation>()
     .AddTypeExtension<DomicilioQueries>()
     .AddSubscriptionType<Subscription>()
@@ -218,6 +226,39 @@ app.MapPost("/webhook/mercadopago", async (
     }
 });
 
+app.MapGet("/api/facturas/{id:int}/xml", async (
+    int id,
+    System.Security.Claims.ClaimsPrincipal user,
+    AppDbContext db,
+    CancellationToken ct) =>
+{
+    var factura = await db.Facturas.AsNoTracking().FirstOrDefaultAsync(f => f.Id == id, ct);
+    if (factura is null || factura.Xml is null)
+        return Results.NotFound(new { message = "XML no encontrado." });
+
+    AuthHelper.ExigirAdminOPropietario(user, factura.UsuarioId);
+    return Results.File(factura.Xml, "application/xml", $"Factura_{factura.Serie}{factura.Folio}.xml");
+}).RequireAuthorization();
+
+app.MapGet("/api/facturas/{id:int}/pdf", async (
+    int id,
+    System.Security.Claims.ClaimsPrincipal user,
+    AppDbContext db,
+    CancellationToken ct) =>
+{
+    var factura = await db.Facturas.AsNoTracking().FirstOrDefaultAsync(f => f.Id == id, ct);
+    if (factura is null || factura.Pdf is null)
+        return Results.NotFound(new { message = "PDF no encontrado." });
+
+    AuthHelper.ExigirAdminOPropietario(user, factura.UsuarioId);
+
+    // Si está timbrada con Facturama es un PDF real; si es borrador, es representación HTML
+    var esPdfReal = factura.Estado == "Timbrada" && factura.FacturamaId is not null;
+    return esPdfReal
+        ? Results.File(factura.Pdf, "application/pdf", $"Factura_{factura.Serie}{factura.Folio}.pdf")
+        : Results.Content(Encoding.UTF8.GetString(factura.Pdf), "text/html; charset=utf-8");
+}).RequireAuthorization();
+
 // Columnas de ubicación del pedido (idempotente: no falla si ya existen)
 using (var scope = app.Services.CreateScope())
 {
@@ -283,6 +324,52 @@ using (var scope = app.Services.CreateScope())
                 "Version" text NOT NULL,
                 "Fecha" timestamp with time zone NOT NULL)
             """);
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS "DatosFiscalesCliente" (
+                "Id" serial PRIMARY KEY,
+                "UsuarioId" integer NOT NULL,
+                "Alias" text NOT NULL DEFAULT 'Principal',
+                "Rfc" text NOT NULL,
+                "RazonSocial" text NOT NULL,
+                "RegimenFiscal" text NOT NULL,
+                "CodigoPostalFiscal" text NOT NULL,
+                "DomicilioFiscal" text NULL,
+                "Predeterminado" boolean NOT NULL DEFAULT false)
+            """);
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE INDEX IF NOT EXISTS \"IX_DatosFiscalesCliente_UsuarioId\" ON \"DatosFiscalesCliente\" (\"UsuarioId\")");
+
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS "Factura" (
+                "Id" serial PRIMARY KEY,
+                "PedidoId" integer NOT NULL,
+                "UsuarioId" integer NOT NULL,
+                "TipoComprobante" text NOT NULL DEFAULT 'I',
+                "Serie" text NOT NULL DEFAULT 'A',
+                "Folio" integer NOT NULL,
+                "RfcReceptor" text NOT NULL,
+                "RazonSocialReceptor" text NOT NULL,
+                "RegimenFiscalReceptor" text NOT NULL,
+                "CodigoPostalReceptor" text NOT NULL,
+                "DomicilioFiscalReceptor" text NULL,
+                "UsoCfdi" text NOT NULL DEFAULT 'G03',
+                "Subtotal" numeric NOT NULL,
+                "Iva" numeric NOT NULL,
+                "Total" numeric NOT NULL,
+                "FormaPago" text NOT NULL DEFAULT '03',
+                "MetodoPago" text NOT NULL DEFAULT 'PUE',
+                "FechaEmision" timestamp without time zone NOT NULL,
+                "Uuid" text NULL,
+                "FacturamaId" text NULL,
+                "Xml" bytea NULL,
+                "Pdf" bytea NULL,
+                "Estado" text NOT NULL DEFAULT 'Borrador',
+                "MotivoError" text NULL)
+            """);
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE INDEX IF NOT EXISTS \"IX_Factura_PedidoId\" ON \"Factura\" (\"PedidoId\")");
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE INDEX IF NOT EXISTS \"IX_Factura_UsuarioId\" ON \"Factura\" (\"UsuarioId\")");
     }
     catch (Exception ex)
     {
