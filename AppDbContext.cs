@@ -13,22 +13,24 @@ public class AppDbContext : DbContext
     public DbSet<Domicilio> Domicilios => Set<Domicilio>();
     public DbSet<CotizacionEnvio> CotizacionesEnvio => Set<CotizacionEnvio>();
     public DbSet<AceptacionLegal> AceptacionesLegales => Set<AceptacionLegal>();
+    public DbSet<EtiquetaEnvio> EtiquetasEnvio => Set<EtiquetaEnvio>();
+    public DbSet<Factura> Facturas => Set<Factura>();
+    public DbSet<DatosFiscalesCliente> DatosFiscalesClientes => Set<DatosFiscalesCliente>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-
         modelBuilder.Entity<Pedido>(e =>
-{
-    e.ToTable("Pedido");
-    e.Property(p => p.Id).HasColumnName("Id");
-    e.Property(p => p.Fecha).HasColumnName("Fecha");
-    e.Property(p => p.Total).HasColumnName("Total");
-    e.Property(p => p.Status).HasColumnName("Status");
-    e.Property(p => p.UsuarioId).HasColumnName("UsuarioId");
-    e.Property(p => p.NombreCompleto).HasColumnName("NombreCompleto");
-    e.Property(p => p.DireccionEntrega).HasColumnName("DireccionEntrega");
-    e.Property(p => p.Telefono).HasColumnName("Telefono");
-});
+        {
+            e.ToTable("Pedido");
+            e.Property(p => p.Id).HasColumnName("Id");
+            e.Property(p => p.Fecha).HasColumnName("Fecha");
+            e.Property(p => p.Total).HasColumnName("Total");
+            e.Property(p => p.Status).HasColumnName("Status");
+            e.Property(p => p.UsuarioId).HasColumnName("UsuarioId");
+            e.Property(p => p.NombreCompleto).HasColumnName("NombreCompleto");
+            e.Property(p => p.DireccionEntrega).HasColumnName("DireccionEntrega");
+            e.Property(p => p.Telefono).HasColumnName("Telefono");
+        });
 
         modelBuilder.Entity<DetallePedido>(e =>
         {
@@ -43,6 +45,9 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Domicilio>().ToTable("Domicilio");
         modelBuilder.Entity<CotizacionEnvio>().ToTable("CotizacionEnvio");
         modelBuilder.Entity<AceptacionLegal>().ToTable("AceptacionLegal");
+        modelBuilder.Entity<EtiquetaEnvio>().ToTable("EtiquetaEnvio");
+        modelBuilder.Entity<Factura>().ToTable("Factura");
+        modelBuilder.Entity<DatosFiscalesCliente>().ToTable("DatosFiscalesCliente");
 
         modelBuilder.Entity<Categoria>().HasData(
             new Categoria { Id = 1, Nombre = "Alimentos" },
