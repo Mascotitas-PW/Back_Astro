@@ -537,15 +537,17 @@ public sealed class FacturacionService(
 
     private static DateTime ObtenerHoraMexico()
     {
+        DateTime local;
         try
         {
             var tz = TimeZoneInfo.FindSystemTimeZoneById("America/Mexico_City");
-            return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
+            local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
         }
         catch
         {
-            return DateTime.UtcNow.AddHours(-6);
+            local = DateTime.UtcNow.AddHours(-6);
         }
+        return DateTime.SpecifyKind(local, DateTimeKind.Unspecified);
     }
 }
 
