@@ -1,4 +1,4 @@
-namespace back.Payments;
+namespace back.Models;
 
 public static class Envio
 {

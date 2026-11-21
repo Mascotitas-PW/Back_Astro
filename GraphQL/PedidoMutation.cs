@@ -5,6 +5,7 @@ using back.Services.Pedidos;
 using HotChocolate;
 using HotChocolate.Authorization;
 using HotChocolate.Types;
+using Microsoft.EntityFrameworkCore;
 
 namespace back.GraphQL;
 
@@ -130,4 +131,13 @@ public class PedidoMutation
             throw new GraphQLException(ex.Message);
         }
     }
+    
+    [Authorize(Roles = new[] { "Admin" })]
+public async Task<Pedido> ActualizarEstadoPedido(int id, string status, [Service] AppDbContext ctx)
+{
+    var p = await ctx.Pedidos.FirstOrDefaultAsync(x => x.Id == id) ?? throw new GraphQLException("El pedido no existe.");
+    p.Status = status.Trim();
+    await ctx.SaveChangesAsync();
+    return p;
+}
 }
