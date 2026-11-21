@@ -1,21 +1,32 @@
 name: Back CI/CD
+
 on:
-  push: { branches: [main] }
-  pull_request: { branches: [main] }
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
 jobs:
   build-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-dotnet@v4
-        with: { dotnet-version: '10.0.x' }
+        with:
+          dotnet-version: '10.0.x'
+
       - run: dotnet restore back.csproj
       - run: dotnet build back.csproj -c Release --no-restore
       - run: dotnet test Tests/back.Tests.csproj -c Release
       - run: dotnet publish back.csproj -c Release -o publish --no-build
+
       - uses: actions/upload-artifact@v4
-        with: { name: back-publish, path: publish }
- deploy:
+        with:
+          name: back-publish
+          path: publish
+
+  deploy:
     needs: build-test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
