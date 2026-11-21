@@ -195,7 +195,7 @@ public static class HtmlCfdi40
   <meta charset="utf-8">
   <title>Factura {{EH(d.Serie)}}-{{d.Folio}}</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+- { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 12px; color: #111; padding: 32px; max-width: 920px; margin: 0 auto; }
     h1 { font-size: 26px; margin-bottom: 16px; }
     .r { text-align: right; }
@@ -338,8 +338,9 @@ public sealed class FacturacionService(
         }
 
         if (await context.Facturas.AnyAsync(
-            f => f.PedidoId == pedidoId && f.TipoComprobante == "I" && f.Estado != "Cancelada", ct))
-            throw new FacturacionException("Este pedido ya tiene una factura emitida.");
+            f => f.PedidoId == pedidoId && f.UsuarioId == usuarioId &&
+                 f.TipoComprobante == "I" && f.Estado != "Cancelada", ct))
+            throw new FacturacionException("Ya emitiste una factura para este pedido.");
 
         rfcReceptor = rfcReceptor.Trim().ToUpperInvariant();
         razonSocial = razonSocial.Trim().ToUpperInvariant();

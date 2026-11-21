@@ -236,7 +236,10 @@ app.MapGet("/api/facturas/{id:int}/xml", async (
     if (factura is null || factura.Xml is null)
         return Results.NotFound(new { message = "XML no encontrado." });
 
-    AuthHelper.ExigirAdminOPropietario(user, factura.UsuarioId);
+    var uid = int.TryParse(user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var u) ? u : 0;
+    if (factura.UsuarioId != uid)
+        return Results.NotFound(new { message = "Factura no encontrada." });
+
     return Results.File(factura.Xml, "application/xml", $"Factura_{factura.Serie}{factura.Folio}.xml");
 }).RequireAuthorization();
 
@@ -250,7 +253,9 @@ app.MapGet("/api/facturas/{id:int}/pdf", async (
     if (factura is null || factura.Pdf is null)
         return Results.NotFound(new { message = "PDF no encontrado." });
 
-    AuthHelper.ExigirAdminOPropietario(user, factura.UsuarioId);
+    var uid = int.TryParse(user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var u) ? u : 0;
+    if (factura.UsuarioId != uid)
+        return Results.NotFound(new { message = "Factura no encontrada." });
 
     // Si está timbrada con Facturama es un PDF real; si es borrador, es representación HTML
     var esPdfReal = factura.Estado == "Timbrada" && factura.FacturamaId is not null;
@@ -402,5 +407,4 @@ app.MapGet("/api/codigos-postales/{codigoPostal}", async (
 
 app.Run();
 
-// Necesario para WebApplicationFactory<Program> en las pruebas de integración.
 public partial class Program;

@@ -40,18 +40,17 @@ public class FacturaQueries
 {
     private const string CAMPOS = "id folio serie estado uuid fechaEmision subtotal iva total rfcReceptor razonSocialReceptor usoCfdi";
 
-    // Facturas del cliente (propias o admin ve todas)
+    // Facturas del cliente (propias)
     [Authorize]
     public async Task<List<Factura>> GetMisFacturas(
         ClaimsPrincipal user,
         [Service] AppDbContext context)
     {
         var id = AuthHelper.ObtenerUsuarioId(user);
-        var esAdmin = AuthHelper.EsAdmin(user);
 
         return await context.Facturas
             .AsNoTracking()
-            .Where(f => esAdmin || f.UsuarioId == id)
+            .Where(f => f.UsuarioId == id)
             .OrderByDescending(f => f.FechaEmision)
             .Select(f => new Factura
             {
