@@ -126,12 +126,10 @@ builder.Services
     .AddInMemorySubscriptions()
     .AddFiltering()
     .AddSorting()
-    .AddErrorFilter(error =>
-    {
-        if (error.Exception is { } ex)
-            Console.Error.WriteLine($"[GraphQL] {error.Path}: {ex}");
-        return error;
-    })
+    .AddErrorFilter(error => error.Exception is null
+    ? error
+    : error.WithMessage(
+        $"{error.Exception.GetType().Name}: {error.Exception.Message} | {error.Exception.InnerException?.Message}"))
     .ModifyRequestOptions(options =>
     {
         options.IncludeExceptionDetails =
