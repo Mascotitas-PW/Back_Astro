@@ -13,7 +13,7 @@ public class AppDbContext : DbContext
     public DbSet<Domicilio> Domicilios => Set<Domicilio>();
     public DbSet<CotizacionEnvio> CotizacionesEnvio => Set<CotizacionEnvio>();
     public DbSet<AceptacionLegal> AceptacionesLegales => Set<AceptacionLegal>();
-    public DbSet<EtiquetaEnvio> EtiquetasEnvio => Set<EtiquetaEnvio>();
+    
     public DbSet<Factura> Facturas => Set<Factura>();
     public DbSet<DatosFiscalesCliente> DatosFiscalesClientes => Set<DatosFiscalesCliente>();
 
@@ -45,7 +45,6 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Domicilio>().ToTable("Domicilio");
         modelBuilder.Entity<CotizacionEnvio>().ToTable("CotizacionEnvio");
         modelBuilder.Entity<AceptacionLegal>().ToTable("AceptacionLegal");
-        modelBuilder.Entity<EtiquetaEnvio>().ToTable("EtiquetaEnvio");
         modelBuilder.Entity<Factura>().ToTable("Factura");
         modelBuilder.Entity<DatosFiscalesCliente>().ToTable("DatosFiscalesCliente");
 
