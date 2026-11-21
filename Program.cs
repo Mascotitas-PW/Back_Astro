@@ -118,7 +118,7 @@ builder.Services
     .AddMutationType<Mutation>()
     .AddTypeExtension<ProductMutation>()
     .AddTypeExtension<PedidoMutation>()
-    .AddTypeExtension<FacturaQueries>()     
+    .AddTypeExtension<FacturaQueries>()
     .AddTypeExtension<FacturaMutation>()
     .AddTypeExtension<DomicilioMutation>()
     .AddTypeExtension<DomicilioQueries>()
@@ -126,6 +126,12 @@ builder.Services
     .AddInMemorySubscriptions()
     .AddFiltering()
     .AddSorting()
+    .AddErrorFilter(error =>
+    {
+        if (error.Exception is { } ex)
+            Console.Error.WriteLine($"[GraphQL] {error.Path}: {ex}");
+        return error;
+    })
     .ModifyRequestOptions(options =>
     {
         options.IncludeExceptionDetails =
