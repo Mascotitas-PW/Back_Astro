@@ -35,4 +35,4 @@ jobs:
     steps:
       - run: |
           test -n "$HOOK" || { echo "::error::Falta el secret RENDER_DEPLOY_HOOK"; exit 1; }
-          curl -fsS -X POST "$HOOK"
+          curl -fsS -X POST "$HOOK"   
