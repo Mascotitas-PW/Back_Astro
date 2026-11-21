@@ -81,7 +81,8 @@ public class MercadoPagoPaymentServiceTests
         var result = await service.ProcessAsync(request);
 
         Assert.Equal("rejected", result.Status);
-        Assert.Contains("invalid_payment_method", result.Message ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("invalid_payment_method", result.StatusDetail ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("card declined", result.Message ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -104,7 +105,7 @@ public class MercadoPagoPaymentServiceTests
     }
 
     [Fact]
-    public async Task ProcessAsync_WhenMercadoPagoReturnsServerError_PropagatesErrorMessage()
+    public async Task ProcessAsync_WhenMercadoPagoReturnsServerError_ReturnsRejectedWithoutLeakingProviderMessage()
     {
         await using var context = CreateContext();
         var handler = new StubHttpMessageHandler(new HttpResponseMessage(HttpStatusCode.InternalServerError)
@@ -132,7 +133,8 @@ public class MercadoPagoPaymentServiceTests
         var result = await service.ProcessAsync(request);
 
         Assert.Equal("rejected", result.Status);
-        Assert.Contains("Mercado Pago unavailable", result.Message ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("mp_error", result.StatusDetail);
+        Assert.DoesNotContain("Mercado Pago unavailable", result.Message ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
 
     private static AppDbContext CreateContext()

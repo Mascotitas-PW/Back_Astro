@@ -135,7 +135,7 @@ public sealed class MercadoPagoPaymentService(
                 "rejected",
                 null,
                 error.Code,
-                "Mercado Pago rechazó el pago. Consulta los logs del backend para ver el motivo.");
+                "No se pudo procesar el pago. Verifica los datos de tu tarjeta o intenta con otra.");
         }
 
         using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
