@@ -59,7 +59,7 @@ public record CrearPedidoSinPagoInput(
 [ExtendObjectType(typeof(Mutation))]
 public class PedidoMutation
 {
-    private static readonly string[] MetodosSinPago = { "Efectivo", "Transferencia" };
+    private static readonly string[] MetodosSinPago = { "Efectivo" };
 
     // CREAR PEDIDO CON MERCADO PAGO
     [Authorize]

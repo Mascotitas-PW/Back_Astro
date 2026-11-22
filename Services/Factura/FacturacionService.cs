@@ -380,9 +380,9 @@ public sealed class FacturacionService(
         var iva = conceptos.Sum(c => decimal.Round(decimal.Round(c.PrecioUnitario * c.Cantidad, 2) * 0.16m, 2));
         var total = subtotal + iva;
 
-        var fp = pedido.Status?.Contains("PayPal", StringComparison.OrdinalIgnoreCase) == true ? "PayPal"
-               : pedido.Status?.Contains("Mercado", StringComparison.OrdinalIgnoreCase) == true ? "Tarjeta"
-               : "Transferencia";
+       var fp = pedido.Status?.Contains("PayPal", StringComparison.OrdinalIgnoreCase) == true ? "PayPal"
+       : pedido.Status?.Contains("Mercado", StringComparison.OrdinalIgnoreCase) == true ? "Tarjeta"
+       : "Efectivo";
         var formaPago = CatalogosSat.FormaPago(fp);
 
         var fechaMexico = ObtenerHoraMexico();
@@ -461,8 +461,7 @@ public sealed class FacturacionService(
 
         var fp = string.IsNullOrWhiteSpace(formaPago)
             ? (pedido.Status!.Contains("PayPal", StringComparison.OrdinalIgnoreCase) ? "PayPal"
-             : pedido.Status.Contains("Mercado", StringComparison.OrdinalIgnoreCase) ? "Tarjeta"
-             : pedido.Status.Contains("Efectivo", StringComparison.OrdinalIgnoreCase) ? "Efectivo" : "Transferencia")
+            : pedido.Status.Contains("Mercado", StringComparison.OrdinalIgnoreCase) ? "Tarjeta" : "Efectivo")
             : formaPago.Trim();
 
         var nombre = string.IsNullOrWhiteSpace(cliente) ? "PÚBLICO EN GENERAL" : cliente.Trim().ToUpperInvariant();
