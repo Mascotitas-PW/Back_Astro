@@ -54,8 +54,6 @@ public record CrearPedidoSinPagoInput(
     string? Colonia
 );
 
-// Solo recibe, comprueba permisos y delega. La lógica vive en
-// MercadoPagoPaymentService, PayPalPaymentService y PedidoService.
 [ExtendObjectType(typeof(Mutation))]
 public class PedidoMutation
 {
