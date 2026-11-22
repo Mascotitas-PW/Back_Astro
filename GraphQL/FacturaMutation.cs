@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace back.GraphQL;
 
+[ExtendObjectType(typeof(Mutation))]
 public class FacturaMutation
 {
     // El cliente guarda / edita sus datos fiscales para no capturarlos cada vez
@@ -62,7 +63,7 @@ public class FacturaMutation
         return datos;
     }
 
-    // Solicitar factura de un pedido entregado
+    // El cliente solicita la factura (CFDI) de un pedido entregado
     [Authorize]
     public async Task<Factura> SolicitarFactura(
         SolicitudFacturaInput input,
@@ -73,13 +74,12 @@ public class FacturaMutation
     {
         var uid = AuthHelper.ObtenerUsuarioId(user);
 
-        // Verificar que el pedido existe y pertenece al usuario (no admin)
         var pedido = await context.Pedidos.AsNoTracking()
             .FirstOrDefaultAsync(p => p.Id == input.PedidoId, ct)
             ?? throw new GraphQLException("El pedido no existe.");
 
         if (AuthHelper.EsAdmin(user))
-            throw new GraphQLException("Como administrador usa «Registrar venta».");
+            throw new GraphQLException("Como administrador usa «Facturar venta».");
         if (pedido.UsuarioId != uid)
             throw new GraphQLException("Ese pedido no es tuyo.");
 
@@ -114,17 +114,24 @@ public class FacturaMutation
             throw new GraphQLException(ex.Message);
         }
     }
-[Authorize(Roles = new[] { "Admin" })]
-public async Task<Factura> RegistrarVenta(
-    RegistroVentaInput input, ClaimsPrincipal user,
-    [Service] FacturacionService facturacion, CancellationToken ct)
-{
-    try
+
+    // El administrador factura la venta de la empresa (comprobante de Mascotitas)
+    [Authorize(Roles = new[] { "Admin" })]
+    public async Task<Factura> RegistrarVenta(
+        RegistroVentaInput input,
+        ClaimsPrincipal user,
+        [Service] FacturacionService facturacion,
+        CancellationToken ct)
     {
-        return await facturacion.EmitirVentaAsync(
-            input.PedidoId, AuthHelper.ObtenerUsuarioId(user),
-            input.Cliente, input.FormaPago, input.Observaciones, ct);
+        try
+        {
+            return await facturacion.EmitirVentaAsync(
+                input.PedidoId, AuthHelper.ObtenerUsuarioId(user),
+                input.Cliente, input.FormaPago, input.Observaciones, ct);
+        }
+        catch (FacturacionException ex)
+        {
+            throw new GraphQLException(ex.Message);
+        }
     }
-    catch (FacturacionException ex) { throw new GraphQLException(ex.Message); }
-}
 }
