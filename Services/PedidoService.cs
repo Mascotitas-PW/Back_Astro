@@ -26,6 +26,14 @@ public sealed record NuevoPedido(
 // Lanza PaymentRequestException ante datos inválidos; quien lo llame decide cómo mostrarlo.
 public sealed class PedidoService(AppDbContext context, ITopicEventSender sender)
 {
+    public const decimal TasaIva = 0.16m;
+
+    public static decimal ConIva(decimal baseImponible)
+    {
+        var b = decimal.Round(baseImponible, 2, MidpointRounding.AwayFromZero);
+        return b + decimal.Round(b * TasaIva, 2, MidpointRounding.AwayFromZero);
+    }
+
     // Total a cobrar (productos + envío), calculado siempre en el servidor.
     public async Task<decimal> CalcularTotalAsync(
         int usuarioId,
@@ -36,7 +44,7 @@ public sealed class PedidoService(AppDbContext context, ITopicEventSender sender
     {
         var (_, _, subtotal) = await PrepararAsync(usuarioId, items, ct);
         var tarifa = await ObtenerTarifaAsync(usuarioId, cotizacionEnvioId, rateId, null, ct);
-        return decimal.Round(subtotal + tarifa.Importe, 2, MidpointRounding.AwayFromZero);
+        return ConIva(subtotal + tarifa.Importe);
     }
 
     // verificarPago se ejecuta con el total ya calculado y ANTES de guardar nada:
@@ -52,7 +60,7 @@ public sealed class PedidoService(AppDbContext context, ITopicEventSender sender
         var tarifa = await ObtenerTarifaAsync(
             datos.UsuarioId, datos.CotizacionEnvioId, datos.RateId,
             new DireccionCotizacion(datos.CodigoPostal!, datos.Estado!, datos.Ciudad!, datos.Colonia!), ct);
-        var total = decimal.Round(subtotal + tarifa.Importe, 2, MidpointRounding.AwayFromZero);
+        var total = ConIva(subtotal + tarifa.Importe);
 
         if (verificarPago is not null)
             await verificarPago(total);

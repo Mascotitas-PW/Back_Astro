@@ -60,8 +60,7 @@ public sealed class MercadoPagoPaymentService(
 
         var tarifaEnvio = await pedidos.ObtenerTarifaAsync(
             request.UsuarioId, request.CotizacionEnvioId, request.RateId, null);
-        amount += tarifaEnvio.Importe;
-        amount = decimal.Round(amount, 2, MidpointRounding.AwayFromZero);
+        amount = PedidoService.ConIva(amount + tarifaEnvio.Importe);
         var currency = configuration["MERCADOPAGO_CURRENCY"] ?? "MXN";
 
         // 1. Construcción del Payer

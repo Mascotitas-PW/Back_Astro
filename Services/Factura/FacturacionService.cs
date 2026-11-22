@@ -195,7 +195,7 @@ public static class HtmlCfdi40
   <meta charset="utf-8">
   <title>Factura {{EH(d.Serie)}}-{{d.Folio}}</title>
   <style>
-- { box-sizing: border-box; margin: 0; padding: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 12px; color: #111; padding: 32px; max-width: 920px; margin: 0 auto; }
     h1 { font-size: 26px; margin-bottom: 16px; }
     .r { text-align: right; }
@@ -224,8 +224,8 @@ public static class HtmlCfdi40
 <div>
   <div class="folio-box"><span>Folio</span><strong>{{EH(d.Serie)}}{{d.Folio}}</strong></div>
   <div style="line-height:1.5">
-    <div style="font-weight:700;font-size:13px">{{EH(d.NombreEmisor)}}</div>
-    <div style="color:#555">VENTA DE ARTÍCULOS PARA MASCOTAS</div>
+    <div style="font-weight:800;font-size:22px">Mascotitas</div>
+    <div style="color:#555">{{EH(d.NombreEmisor)}} · VENTA DE ARTÍCULOS PARA MASCOTAS</div>
   </div>
   <h1 style="margin-top:12px">Factura</h1>
   <div style="clear:both"></div>
@@ -339,7 +339,7 @@ public sealed class FacturacionService(
 
         if (await context.Facturas.AnyAsync(
             f => f.PedidoId == pedidoId && f.UsuarioId == usuarioId &&
-                 f.TipoComprobante == "I" && f.Estado != "Cancelada", ct))
+                 f.Origen == "Cliente" && f.TipoComprobante == "I" && f.Estado != "Cancelada", ct))
             throw new FacturacionException("Ya emitiste una factura para este pedido.");
 
         rfcReceptor = rfcReceptor.Trim().ToUpperInvariant();
@@ -372,6 +372,9 @@ public sealed class FacturacionService(
             var nombre = prods.TryGetValue(d.ProductoId, out var p) ? p.Nombre : $"Producto {d.ProductoId}";
             return new ConceptoDoc("65210301", "H87", "Pieza", nombre, d.Cantidad, (decimal)d.PrecioUnitario);
         }).ToList();
+
+        if ((pedido.CostoEnvio ?? 0m) > 0)
+            conceptos.Add(new ConceptoDoc("78102200", "E48", "Servicio", "Envío (paquetería)", 1, pedido.CostoEnvio!.Value));
 
         var subtotal = conceptos.Sum(c => decimal.Round(c.PrecioUnitario * c.Cantidad, 2));
         var iva = conceptos.Sum(c => decimal.Round(decimal.Round(c.PrecioUnitario * c.Cantidad, 2) * 0.16m, 2));
@@ -426,6 +429,59 @@ public sealed class FacturacionService(
             }
         }
 
+        context.Facturas.Add(factura);
+        await context.SaveChangesAsync(ct);
+        return factura;
+    }
+
+    // ── EMITIR VENTA (CONTROL INTERNO DE EMPRESA) ───────────────────────────
+    public async Task<Models.Factura> EmitirVentaAsync(
+        int pedidoId, int adminId, string? cliente, string? formaPago, string? observaciones, CancellationToken ct)
+    {
+        var pedido = await context.Pedidos.AsNoTracking().FirstOrDefaultAsync(p => p.Id == pedidoId, ct)
+            ?? throw new FacturacionException("El pedido no existe.");
+        if (pedido.Status?.Contains("Entregado", StringComparison.OrdinalIgnoreCase) != true)
+            throw new FacturacionException("El pedido debe estar entregado antes de registrar la venta.");
+        if (await context.Facturas.AnyAsync(f => f.PedidoId == pedidoId && f.Origen == "Empresa" && f.Estado != "Cancelada", ct))
+            throw new FacturacionException("Este pedido ya tiene su venta registrada.");
+
+        var detalles = await context.DetallePedidos.AsNoTracking().Where(d => d.PedidoId == pedidoId).ToListAsync(ct);
+        if (detalles.Count == 0) throw new FacturacionException("El pedido no tiene productos registrados.");
+        var ids = detalles.Select(d => d.ProductoId).ToList();
+        var prods = await context.Productos.AsNoTracking().Where(p => ids.Contains(p.Id)).ToDictionaryAsync(p => p.Id, ct);
+
+        var conceptos = detalles.Select(d => new ConceptoDoc("65210301", "H87", "Pieza",
+            prods.TryGetValue(d.ProductoId, out var p) ? p.Nombre : $"Producto {d.ProductoId}",
+            d.Cantidad, (decimal)d.PrecioUnitario)).ToList();
+
+        var envio = pedido.CostoEnvio ?? 0m;
+        var subtotal = decimal.Round(conceptos.Sum(c => c.PrecioUnitario * c.Cantidad) + envio, 2);
+        var iva = decimal.Round(subtotal * 0.16m, 2);
+        var total = subtotal + iva;
+
+        var fp = string.IsNullOrWhiteSpace(formaPago)
+            ? (pedido.Status!.Contains("PayPal", StringComparison.OrdinalIgnoreCase) ? "PayPal"
+             : pedido.Status.Contains("Mercado", StringComparison.OrdinalIgnoreCase) ? "Tarjeta"
+             : pedido.Status.Contains("Efectivo", StringComparison.OrdinalIgnoreCase) ? "Efectivo" : "Transferencia")
+            : formaPago.Trim();
+
+        var nombre = string.IsNullOrWhiteSpace(cliente) ? "PÚBLICO EN GENERAL" : cliente.Trim().ToUpperInvariant();
+        var folio = (await context.Facturas.Where(f => f.Serie == "V").MaxAsync(f => (int?)f.Folio, ct) ?? 0) + 1;
+        var fecha = ObtenerHoraMexico();
+
+        var html = HtmlVenta.Generar(new DatosVenta("V", folio, fecha, pedidoId, nombre, pedido.Telefono,
+            pedido.DireccionEntrega, fp, envio, subtotal, iva, total,
+            string.IsNullOrWhiteSpace(observaciones) ? null : observaciones.Trim(), conceptos, NombreEmisor, RfcEmisor));
+
+        var factura = new Models.Factura
+        {
+            PedidoId = pedidoId, UsuarioId = adminId, Origen = "Empresa", TipoComprobante = "I",
+            Serie = "V", Folio = folio, RfcReceptor = "XAXX010101000", RazonSocialReceptor = nombre,
+            RegimenFiscalReceptor = "616", CodigoPostalReceptor = pedido.CodigoPostalEntrega ?? "00000", UsoCfdi = "S01",
+            Subtotal = subtotal, Iva = iva, Total = total,
+            FormaPago = CatalogosSat.FormaPago(fp), MetodoPago = "PUE", FechaEmision = fecha,
+            Pdf = Encoding.UTF8.GetBytes(html), Estado = "Registrada"
+        };
         context.Facturas.Add(factura);
         await context.SaveChangesAsync(ct);
         return factura;
@@ -552,3 +608,63 @@ public sealed class FacturacionService(
 }
 
 public sealed class FacturacionException(string message) : Exception(message);
+
+public sealed record DatosVenta(
+    string Serie, int Folio, DateTime Fecha, int PedidoId, string Cliente, string? Telefono, string? Direccion,
+    string FormaPago, decimal Envio, decimal Subtotal, decimal Iva, decimal Total, string? Observaciones,
+    List<ConceptoDoc> Conceptos, string NombreEmisor, string RfcEmisor);
+
+public static class HtmlVenta
+{
+    private static readonly CultureInfo Mx = new("es-MX");
+    private static string M(decimal v) => v.ToString("N2", Mx);
+    private static string EH(string? s) => (s ?? "").Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+
+    public static string Generar(DatosVenta d)
+    {
+        var filas = new StringBuilder();
+        foreach (var c in d.Conceptos)
+            filas.Append($"<tr><td>{EH(c.Descripcion)}</td><td class=\"r\">{c.Cantidad}</td><td class=\"r\">${M(c.PrecioUnitario)}</td><td class=\"r\">${M(c.PrecioUnitario * c.Cantidad)}</td></tr>");
+        if (d.Envio > 0)
+            filas.Append($"<tr><td>Envío</td><td class=\"r\">1</td><td class=\"r\">${M(d.Envio)}</td><td class=\"r\">${M(d.Envio)}</td></tr>");
+
+        return $$"""
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><title>Venta {{d.Serie}}{{d.Folio}} — Mascotitas</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:12px;color:#3B2A17;padding:32px;max-width:860px;margin:0 auto;background:#fff}
+.top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:4px solid #E8B93E;padding-bottom:12px;margin-bottom:16px}
+h1{font-size:28px}.sub{color:#5C4A38}
+.folio{border:2px solid #AD3F18;border-radius:8px;padding:8px 18px;text-align:center}
+.folio strong{display:block;font-size:22px;color:#AD3F18}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px}
+.box{background:#FFF6DD;border-radius:10px;padding:12px}
+.box h2{font-size:10px;text-transform:uppercase;color:#5C4A38;margin-bottom:6px}
+table{width:100%;border-collapse:collapse;margin:12px 0}
+th{background:#3B2A17;color:#FFF8E7;padding:8px;text-align:left;font-size:11px}
+td{padding:7px 8px;border-bottom:1px solid #eee}.r{text-align:right}
+.tot{margin-left:auto;width:280px}.tot td{border:0;padding:4px 8px}
+.tot .t td{font-size:15px;font-weight:700;border-top:2px solid #AD3F18}
+.pie{margin-top:18px;text-align:center;color:#5C4A38;font-size:11px;border-top:1px solid #ddd;padding-top:10px}
+</style></head><body>
+<div class="top">
+  <div><h1>Mascotitas</h1><div class="sub">{{EH(d.NombreEmisor)}} · RFC {{d.RfcEmisor}}</div><div class="sub">Comprobante de venta</div></div>
+  <div class="folio"><span>Folio</span><strong>{{d.Serie}}{{d.Folio}}</strong></div>
+</div>
+<div class="grid">
+  <div class="box"><h2>Cliente</h2><b>{{EH(d.Cliente)}}</b><br>{{EH(d.Direccion)}}<br>Tel. {{EH(d.Telefono)}}</div>
+  <div class="box"><h2>Datos de la venta</h2>Pedido: <b>#{{d.PedidoId}}</b><br>Fecha: {{d.Fecha:yyyy-MM-dd HH:mm}}<br>Forma de pago: <b>{{EH(d.FormaPago)}}</b></div>
+</div>
+<table><thead><tr><th>Descripción</th><th class="r">Cant.</th><th class="r">Precio</th><th class="r">Importe</th></tr></thead><tbody>{{filas}}</tbody></table>
+<table class="tot">
+  <tr><td>Subtotal</td><td class="r">${{M(d.Subtotal)}}</td></tr>
+  <tr><td>IVA 16%</td><td class="r">${{M(d.Iva)}}</td></tr>
+  <tr class="t"><td>Total</td><td class="r">${{M(d.Total)}}</td></tr>
+</table>
+{{(d.Observaciones is null ? "" : $"<p><b>Observaciones:</b> {EH(d.Observaciones)}</p>")}}
+<p class="pie">Documento interno de Mascotitas para el control de ingresos. No es un CFDI ni tiene validez fiscal.</p>
+</body></html>
+""";
+    }
+}

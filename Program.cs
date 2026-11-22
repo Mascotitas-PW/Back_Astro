@@ -289,6 +289,7 @@ using (var scope = app.Services.CreateScope())
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"Paqueteria\" text NULL");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"ServicioEnvio\" text NULL");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"CostoEnvio\" numeric NULL");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Factura\" ADD COLUMN IF NOT EXISTS \"Origen\" text NOT NULL DEFAULT 'Cliente'");
         await db.Database.ExecuteSqlRawAsync("""
             CREATE TABLE IF NOT EXISTS "CotizacionEnvio" (
                 "Id" uuid PRIMARY KEY,
