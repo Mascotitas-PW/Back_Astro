@@ -18,12 +18,10 @@ using back.Services.Auth;
 
 var builder = WebApplication.CreateBuilder(args);
 
-
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(
         builder.Configuration.GetConnectionString("DefaultConnection")
     ));
-
 
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -64,8 +62,6 @@ builder.Services.Configure<FormOptions>(options =>
     options.MultipartBodyLengthLimit = 6 * 1024 * 1024;
 });
 
-
-
 var jwtKey = builder.Configuration["Jwt:Key"]
     ?? throw new InvalidOperationException("Falta Jwt:Key.");
 
@@ -93,8 +89,6 @@ builder.Services
 
 builder.Services.AddAuthorization();
 
-
-
 builder.Services.AddResponseCompression();
 
 builder.Services.AddCors(options =>
@@ -109,7 +103,6 @@ builder.Services.AddCors(options =>
             .AllowAnyMethod();
     });
 });
-
 
 builder.Services
     .AddGraphQLServer()
@@ -136,12 +129,8 @@ builder.Services
             builder.Environment.IsDevelopment();
     });
 
-
 var app = builder.Build();
 
-
-// Debe ir primero: captura excepciones de cualquier middleware/endpoint, las registra y responde 500
-// genérico. Sin handler, el 500 sale sin headers CORS y el navegador lo muestra como error CORS.
 app.UseApiExceptionHandler();
 
 app.UseResponseCompression();
@@ -153,7 +142,6 @@ app.UseAuthorization();
 
 app.UseWebSockets();
 
-
 var imagenes = app.Services.GetRequiredService<IImageService>();
 
 app.UseStaticFiles(new StaticFileOptions
@@ -164,9 +152,7 @@ app.UseStaticFiles(new StaticFileOptions
     RequestPath = "/images"
 });
 
-
 app.MapGraphQL("/graphql");
-
 
 app.MapPost("/api/imagenes", async (
     IFormFile file,
@@ -196,12 +182,9 @@ app.MapPost("/api/imagenes", async (
 .RequireAuthorization(policy => policy.RequireRole("Admin"))
 .DisableAntiforgery();
 
-
-
 app.MapProcessOrder();
 app.MapPayPal();
 app.MapEnvios();
-
 
 app.MapPost("/webhook/mercadopago", async (
     HttpContext context,
@@ -261,14 +244,12 @@ app.MapGet("/api/facturas/{id:int}/pdf", async (
     if (factura.UsuarioId != uid)
         return Results.NotFound(new { message = "Factura no encontrada." });
 
-    // Si está timbrada con Facturama es un PDF real; si es borrador, es representación HTML
     var esPdfReal = factura.Estado == "Timbrada" && factura.FacturamaId is not null;
     return esPdfReal
         ? Results.File(factura.Pdf, "application/pdf", $"Factura_{factura.Serie}{factura.Folio}.pdf")
         : Results.Content(Encoding.UTF8.GetString(factura.Pdf), "text/html; charset=utf-8");
 }).RequireAuthorization();
 
-// Columnas de ubicación del pedido (idempotente: no falla si ya existen)
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -289,6 +270,19 @@ using (var scope = app.Services.CreateScope())
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"Paqueteria\" text NULL");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"ServicioEnvio\" text NULL");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"CostoEnvio\" numeric NULL");
+        await db.Database.ExecuteSqlRawAsync(
+            "ALTER TABLE \"Pedido\" ADD COLUMN IF NOT EXISTS \"NumeroPedidoUsuario\" integer NOT NULL DEFAULT 0");
+        await db.Database.ExecuteSqlRawAsync("""
+            UPDATE "Pedido" p
+            SET "NumeroPedidoUsuario" = s.rn
+            FROM (
+                SELECT "Id", ROW_NUMBER() OVER (PARTITION BY "UsuarioId" ORDER BY "Id") AS rn
+                FROM "Pedido"
+            ) s
+            WHERE p."Id" = s."Id" AND p."NumeroPedidoUsuario" = 0
+            """);
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE UNIQUE INDEX IF NOT EXISTS \"UX_Pedido_Usuario_Numero\" ON \"Pedido\" (\"UsuarioId\", \"NumeroPedidoUsuario\")");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Factura\" ADD COLUMN IF NOT EXISTS \"Origen\" text NOT NULL DEFAULT 'Cliente'");
         await db.Database.ExecuteSqlRawAsync("""
             CREATE TABLE IF NOT EXISTS "CotizacionEnvio" (

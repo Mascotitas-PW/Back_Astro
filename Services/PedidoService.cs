@@ -70,6 +70,10 @@ public sealed class PedidoService(AppDbContext context, ITopicEventSender sender
         await using var tx = await context.Database.BeginTransactionAsync(ct);
         try
         {
+            var ultimoNumero = await context.Pedidos
+                .Where(p => p.UsuarioId == datos.UsuarioId)
+                .MaxAsync(p => (int?)p.NumeroPedidoUsuario, ct) ?? 0;
+
             var detalles = new List<DetallePedido>();
             foreach (var item in items)
             {
@@ -85,6 +89,7 @@ public sealed class PedidoService(AppDbContext context, ITopicEventSender sender
 
             var pedido = new Pedido
             {
+                NumeroPedidoUsuario = ultimoNumero + 1,
                 Fecha = DateTime.UtcNow,
                 Status = datos.Status,
                 UsuarioId = datos.UsuarioId,

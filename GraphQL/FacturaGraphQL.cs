@@ -60,12 +60,25 @@ public class FacturaQueries
             .OrderByDescending(f => f.FechaEmision)
             .Select(f => new Factura
             {
-                Id = f.Id, PedidoId = f.PedidoId, UsuarioId = f.UsuarioId,
-                Serie = f.Serie, Folio = f.Folio, Estado = f.Estado,
-                Uuid = f.Uuid, FechaEmision = f.FechaEmision,
-                Subtotal = f.Subtotal, Iva = f.Iva, Total = f.Total,
-                RfcReceptor = f.RfcReceptor, RazonSocialReceptor = f.RazonSocialReceptor,
-                UsoCfdi = f.UsoCfdi, TipoComprobante = f.TipoComprobante,
+                Id = f.Id,
+                PedidoId = f.PedidoId,
+                UsuarioId = f.UsuarioId,
+                NumeroPedido = context.Pedidos
+                    .Where(p => p.Id == f.PedidoId)
+                    .Select(p => p.NumeroPedidoUsuario)
+                    .FirstOrDefault(),
+                Serie = f.Serie,
+                Folio = f.Folio,
+                Estado = f.Estado,
+                Uuid = f.Uuid,
+                FechaEmision = f.FechaEmision,
+                Subtotal = f.Subtotal,
+                Iva = f.Iva,
+                Total = f.Total,
+                RfcReceptor = f.RfcReceptor,
+                RazonSocialReceptor = f.RazonSocialReceptor,
+                UsoCfdi = f.UsoCfdi,
+                TipoComprobante = f.TipoComprobante,
                 Origen = f.Origen,
                 MotivoError = f.MotivoError
                 // Xml y Pdf se omiten en el listado (pesados); se bajan por el endpoint REST
@@ -91,4 +104,3 @@ public class FacturaQueries
     public Dictionary<string, string> GetCatalogoUsosCfdi() => CatalogosSat.UsosCfdi;
     public Dictionary<string, string> GetCatalogoRegimenesFiscales() => CatalogosSat.RegimenesFiscales;
 }
-

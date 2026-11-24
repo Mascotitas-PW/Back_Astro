@@ -7,20 +7,19 @@ public class DatosFiscalesCliente
     public string Alias { get; set; } = "Principal";
     public string Rfc { get; set; } = string.Empty;
     public string RazonSocial { get; set; } = string.Empty;
-    public string RegimenFiscal { get; set; } = string.Empty;  
+    public string RegimenFiscal { get; set; } = string.Empty;
     public string CodigoPostalFiscal { get; set; } = string.Empty;
     public string? DomicilioFiscal { get; set; }
     public bool Predeterminado { get; set; }
 }
 
-// Factura CFDI 4.0 generada para un pedido.
-// XML y PDF se guardan en la base de datos, nunca en Cloudinary.
 public class Factura
 {
     public int Id { get; set; }
     public int PedidoId { get; set; }
     public int UsuarioId { get; set; }
-    public string TipoComprobante { get; set; } = "I";   
+    public int NumeroPedido { get; set; }
+    public string TipoComprobante { get; set; } = "I";
     public string Serie { get; set; } = "A";
     public int Folio { get; set; }
 
@@ -43,14 +42,13 @@ public class Factura
     public DateTime FechaEmision { get; set; }
 
     // Facturama
-    public string? Uuid { get; set; }          // folio fiscal; null hasta que se timbra
+    public string? Uuid { get; set; }
     public string? FacturamaId { get; set; }
 
     public byte[]? Xml { get; set; }
     public byte[]? Pdf { get; set; }
 
-    public string Origen { get; set; } = "Cliente"; 
-    
+    public string Origen { get; set; } = "Cliente";
     public string Estado { get; set; } = "Borrador";
     public string? MotivoError { get; set; }
 }
