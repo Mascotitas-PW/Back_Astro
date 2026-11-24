@@ -21,6 +21,29 @@ namespace back.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("back.Models.AceptacionLegal", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("Fecha")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("UsuarioId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Version")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AceptacionLegal", (string)null);
+                });
+
             modelBuilder.Entity("back.Models.Categoria", b =>
                 {
                     b.Property<int>("Id")
@@ -55,6 +78,92 @@ namespace back.Migrations
                         });
                 });
 
+            modelBuilder.Entity("back.Models.CotizacionEnvio", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Ciudad")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CodigoPostal")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Colonia")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreadaUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Estado")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SkydropxId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TarifasJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("UsuarioId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("VenceUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("CotizacionEnvio", (string)null);
+                });
+
+            modelBuilder.Entity("back.Models.DatosFiscalesCliente", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Alias")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CodigoPostalFiscal")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("DomicilioFiscal")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("Predeterminado")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("RazonSocial")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RegimenFiscal")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Rfc")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("UsuarioId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("DatosFiscalesCliente", (string)null);
+                });
+
             modelBuilder.Entity("back.Models.DetallePedido", b =>
                 {
                     b.Property<int>("Id")
@@ -85,6 +194,158 @@ namespace back.Migrations
                     b.ToTable("DetallePedido", (string)null);
                 });
 
+            modelBuilder.Entity("back.Models.Domicilio", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Alias")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Ciudad")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CodigoPostal")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Colonia")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Direccion")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Estado")
+                        .HasColumnType("text");
+
+                    b.Property<double?>("Latitud")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("Longitud")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("NombreCompleto")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("Predeterminado")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Telefono")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("UsuarioId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Domicilio", (string)null);
+                });
+
+            modelBuilder.Entity("back.Models.Factura", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CodigoPostalReceptor")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("DomicilioFiscalReceptor")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Estado")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("FacturamaId")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("FechaEmision")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<int>("Folio")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("FormaPago")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("Iva")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("MetodoPago")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("MotivoError")
+                        .HasColumnType("text");
+
+                    b.Property<int>("NumeroPedido")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Origen")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<byte[]>("Pdf")
+                        .HasColumnType("bytea");
+
+                    b.Property<int>("PedidoId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RazonSocialReceptor")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RegimenFiscalReceptor")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RfcReceptor")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Serie")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("Subtotal")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("TipoComprobante")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("Total")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("UsoCfdi")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("UsuarioId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Uuid")
+                        .HasColumnType("text");
+
+                    b.Property<byte[]>("Xml")
+                        .HasColumnType("bytea");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Factura", (string)null);
+                });
+
             modelBuilder.Entity("back.Models.Pedido", b =>
                 {
                     b.Property<int>("Id")
@@ -94,9 +355,27 @@ namespace back.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("CiudadEntrega")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CodigoPostalEntrega")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ColoniaEntrega")
+                        .HasColumnType("text");
+
+                    b.Property<decimal?>("CostoEnvio")
+                        .HasColumnType("numeric");
+
+                    b.Property<Guid?>("CotizacionEnvioId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("DireccionEntrega")
                         .HasColumnType("text")
                         .HasColumnName("DireccionEntrega");
+
+                    b.Property<string>("EstadoEntrega")
+                        .HasColumnType("text");
 
                     b.Property<DateTime>("Fecha")
                         .HasColumnType("timestamp with time zone")
@@ -111,6 +390,18 @@ namespace back.Migrations
                     b.Property<string>("NombreCompleto")
                         .HasColumnType("text")
                         .HasColumnName("NombreCompleto");
+
+                    b.Property<int>("NumeroPedidoUsuario")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Paqueteria")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ServicioEnvio")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SkydropxRateId")
+                        .HasColumnType("text");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -152,6 +443,9 @@ namespace back.Migrations
                     b.Property<string>("Nombre")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<decimal?>("PesoKg")
+                        .HasColumnType("numeric");
 
                     b.Property<decimal>("Precio")
                         .HasColumnType("numeric");
