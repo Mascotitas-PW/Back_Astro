@@ -1,157 +1,143 @@
-# Mascotitas — Backend
+# Mascotitas — Back-end
 
-API de la tienda de mascotas **Mascotitas**. Expone una API **GraphQL** (HotChocolate) y algunos endpoints REST para pagos e imágenes, sobre **ASP.NET Core** con **PostgreSQL**.
+API de la tienda Mascotitas hecha con **ASP.NET Core**, **GraphQL (Hot Chocolate)** y **PostgreSQL** (Entity Framework Core). Maneja autenticación, catálogo, pedidos, pagos, cotización de envíos, domicilios, facturación CFDI 4.0 y eventos en tiempo real.
 
 ## Tecnologías
 
-| Área | Tecnología |
+|Área|Herramienta|
 |---|---|
-| Plataforma | .NET 10 / ASP.NET Core (minimal APIs) |
-| API | HotChocolate GraphQL (queries, mutations y subscriptions por WebSocket) |
-| Base de datos | PostgreSQL con Entity Framework Core (Npgsql) |
-| Autenticación | JWT Bearer, contraseñas con BCrypt, inicio de sesión con Google |
-| Pagos | Mercado Pago (tarjeta) y PayPal; efectivo y transferencia sin pago en línea |
-| Imágenes | Subida local validada por firma de archivo (JPG, PNG, WEBP, máx. 5 MB) |
-| CI | GitHub Actions (`Back CI`) |
-
-## Funcionalidades actuales
-
-- **Usuarios:** registro, login con correo/contraseña y login con Google. Todo usuario nuevo se crea con rol `Cliente`.
-- **Catálogo:** consulta de categorías y productos (con filtrado y ordenamiento).
-- **Administración (rol `Admin`):** crear, actualizar y eliminar productos; subir imágenes; consultar usuarios, todos los pedidos y estadísticas.
-- **Pedidos:** creación con pago por tarjeta (Mercado Pago), con PayPal, o sin pago en línea (`Efectivo` / `Transferencia`, queda como `Pendiente de pago`).
-- **Reglas de negocio en el servidor:** el total siempre lo calcula el backend (productos + envío), se valida stock y datos de entrega, y el stock se descuenta en una transacción.
-- **Envío:** cotización de paqueterías Skydropx en Sandbox; el usuario elige un servicio y el backend valida y guarda la tarifa junto con el pedido.
-- **Paquetes:** el peso se calcula con el peso neto de cada producto más la tara configurada de la caja; las dimensiones de la caja se configuran en el backend.
-- **Tiempo real:** subscriptions para cambios de stock, de productos y pedidos nuevos (`InMemorySubscriptions`).
-- **Estadísticas:** ventas totales, pedidos, ticket promedio, ventas de los últimos 30 días, top 5 de productos y ventas por categoría.
+|Framework|ASP.NET Core (minimal APIs + GraphQL)|
+|GraphQL|Hot Chocolate: queries, mutations, **subscriptions** (WebSocket), filtrado y ordenamiento|
+|Base de datos|PostgreSQL con EF Core (Npgsql)|
+|Autenticación|JWT Bearer (HS256), contraseñas con **BCrypt**, inicio con **Google**|
+|Pagos|Mercado Pago (tarjeta) y PayPal (Orders v2)|
+|Envíos|Skydropx (cotización con tarifas)|
+|Facturación|Facturama (timbrado CFDI 4.0)|
+|Imágenes|Cloudinary (o disco local si no hay `CLOUDINARY_URL`)|
+|Códigos postales|Zippopotam.us + Nominatim (ciudad)|
+|Pruebas|xUnit + `WebApplicationFactory` + base en memoria|
 
 ## Estructura
 
 ```text
 back/
-├── Program.cs                  # Configuración, DI, auth, CORS, GraphQL y endpoints
-├── AppDbContext.cs             # DbContext y datos semilla
+├── Program.cs                 Servicios, middleware, endpoints REST y preparación de la BD
+├── AppDbContext.cs            DbSets, nombres de tablas y datos semilla
 ├── GraphQL/
-│   ├── Query.cs
-│   ├── Mutation.cs             # registrar, login, loginGoogle
-│   ├── ProductMutation.cs      # CRUD de productos (Admin)
-│   ├── PedidoMutation.cs       # crearPedido, crearPedidoSinPago
-│   ├── PedidoAuth.cs
-│   └── Subscription.cs
-├── Models/                     # User, Categoria, Producto, Pedido, DetallePedido, EstadisticasDto
+│   ├── Query.cs               catálogo, pedidos, estadísticas
+│   ├── Mutation.cs            registrar, login, loginGoogle
+│   ├── ProductMutation.cs     CRUD de productos (Admin)
+│   ├── PedidoMutation.cs      crearPedido / crearPedidoSinPago
+│   ├── DomicilioGraphQL.cs    domicilios y aceptación legal
+│   ├── FacturaGraphQL.cs      datos fiscales y facturas
+│   ├── PedidoAuth.cs          validaciones de propietario
+│   └── Subscription.cs        stock, productos y pedidos en vivo
+├── Models/                    Pedido, Producto, Factura, Domicilio, CotizacionEnvio…
 ├── Payments/
-│   ├── MercadoPagoPaymentService.cs
-│   ├── ProcessOrderEndpoint.cs / ProcessOrderRequest.cs
-│   ├── Envio.cs
-│   └── PayPal/                 # PayPalEndpoint, PayPalPaymentService, PayPalModels
+│   ├── MercadoPagoPaymentService.cs, ProcessOrderEndpoint.cs
+│   ├── PayPal/                PayPalPaymentService, PayPalEndpoint, modelos
+│   ├── SkydropxClient.cs, EnvioEndpoint.cs, CotizacionValidation.cs
+│   └── MexicoPostalService.cs
 ├── Services/
-│   ├── Auth/                   # AuthService, JwtService, AuthHelper, AuthPayload
-│   ├── Pedidos/PedidoService.cs  # Único lugar donde se crea un pedido
-│   └── ImageService.cs
-└── .github/workflows/deploy.yml
+│   ├── Auth/                  AuthService, JwtService, AuthHelper
+│   ├── Pedidos/PedidoService.cs   ÚNICO lugar donde se crea un pedido
+│   ├── Factura/FacturacionService.cs   XML/HTML CFDI + timbrado
+│   └── CloudinaryImageService.cs / ImageService.cs
+├── Http/ApiErrorHandling.cs   Manejo global de errores (500 genérico con CORS)
+└── Tests/                     Pruebas de envíos, Skydropx, postal y Mercado Pago
 ```
+
+## Instalación
+
+Requisitos: **.NET SDK**, **PostgreSQL** accesible y, para los pagos/envíos, cuentas de prueba de cada proveedor.
+
+```bash
+cd back
+dotnet restore
+dotnet user-secrets init
+dotnet user-secrets set "Jwt:Key" "<mínimo 32 caracteres>"
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=mascotitas;Username=postgres;Password=<clave>"
+dotnet run
+```
+
+GraphQL queda en `/graphql` (con la herramienta Banana Cake Pop en desarrollo). Al arrancar, el servidor crea las tablas y columnas faltantes (`CREATE/ALTER … IF NOT EXISTS`), por lo que no se requieren migraciones para empezar.
 
 ## Configuración
 
-Las claves se leen de `appsettings`, *user-secrets* o variables de entorno (en variables de entorno, los niveles se separan con doble guion bajo, por ejemplo `Jwt__Key`).
+Se lee de *user-secrets*, `appsettings` o variables de entorno (en Render/Linux se usa `__` en lugar de `:`, por ejemplo `Jwt__Key`).
 
-| Clave | Obligatoria | Descripción |
+|Clave|Obligatoria|Descripción|
 |---|---|---|
-| `ConnectionStrings:DefaultConnection` | Sí | Cadena de conexión a PostgreSQL |
-| `Jwt:Key` | Sí | Llave de firma de los tokens (la app no arranca sin ella) |
-| `Jwt:Issuer` / `Jwt:Audience` | No | Por defecto `mascotitas` |
-| `Jwt:ExpireHours` | No | Duración del token, por defecto 8 horas |
-| `Google:ClientId` | Para login con Google | Client ID de OAuth de Google |
-| `MP_TOKEN` | Para Mercado Pago | Access token de Mercado Pago |
-| `MERCADOPAGO_CURRENCY` | No | Moneda, por defecto `MXN` |
-| `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | Para PayPal | Credenciales de PayPal |
-| `PayPal:BaseUrl` | No | Por defecto `https://api-m.sandbox.paypal.com` (sandbox) |
-| `PayPal:Currency` | No | Por defecto `MXN` |
-| `Skydropx:BaseUrl` | Para cotizar | Host Sandbox indicado para tu cuenta Skydropx; no uses el host de producción |
-| `Skydropx:ClientId` / `Skydropx:ClientSecret` | Para cotizar | Credenciales API de la aplicación Sandbox |
-| `Skydropx:Origin:PostalCode` | Para cotizar | Código postal de la bodega de salida |
-| `Skydropx:Origin:State` / `City` / `Neighborhood` | Para cotizar | Estado, ciudad y colonia de la bodega |
-| `Skydropx:Parcel:LengthCm` / `WidthCm` / `HeightCm` | Para cotizar | Dimensiones exteriores de la caja estándar, en centímetros |
-| `Skydropx:Parcel:TareWeightKg` | Para cotizar | Peso vacío de la caja, en kilogramos |
+|`ConnectionStrings:DefaultConnection`|Sí|Cadena de PostgreSQL|
+|`Jwt:Key`|Sí|Clave de firma (32+ caracteres)|
+|`Jwt:Issuer` / `Jwt:Audience`|No|Por defecto `mascotitas`|
+|`Jwt:ExpireHours`|No|Duración del token (por defecto 8)|
+|`Google:ClientId`|Para Google|ID de cliente de Google|
+|`MP_TOKEN`|Para tarjeta|Access token de Mercado Pago|
+|`MERCADOPAGO_CURRENCY`|No|Por defecto `MXN`|
+|`PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`|Para PayPal|Credenciales de la app|
+|`PayPal:BaseUrl`, `PayPal:Currency`|No|Sandbox y `MXN` por defecto|
+|`Skydropx:BaseUrl`, `Skydropx:ClientId`, `Skydropx:ClientSecret`|Para envíos|API de Skydropx|
+|`Skydropx:Origin:PostalCode` `State` `City` `Neighborhood`|Para envíos|Dirección de origen|
+|`Skydropx:Parcel:LengthCm` `WidthCm` `HeightCm`|Para envíos|Medidas de la caja (positivas)|
+|`Skydropx:Parcel:TareWeightKg`|No|Peso de la caja vacía|
+|`Facturama:Usuario`, `Facturama:Password`|Para timbrar|Sin ellas la factura queda como **Borrador**|
+|`Facturama:Produccion`|No|`true` para producción; sandbox por defecto|
+|`Factura:Emisor:Rfc` `Nombre` `Regimen` `CodigoPostal`|Para facturar|Datos del emisor|
+|`CLOUDINARY_URL`|No|Si falta, las imágenes se guardan en `uploads/images`|
 
-Ejemplo con *user-secrets*:
+**CORS** permite `http://localhost:4321` y `https://mascotitas-pw.github.io` (se cambia en `Program.cs`, política `AllowReact`).
 
-```bash
-dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Database=mascotitas;Username=postgres;Password=tu_password"
-dotnet user-secrets set "Jwt:Key" "una-llave-larga-y-secreta-de-al-menos-32-caracteres"
-dotnet user-secrets set "Skydropx:BaseUrl" "<host Sandbox indicado por Skydropx>"
-dotnet user-secrets set "Skydropx:ClientId" "<client id de Sandbox>"
-dotnet user-secrets set "Skydropx:ClientSecret" "<client secret de Sandbox>"
-dotnet user-secrets set "Skydropx:Origin:PostalCode" "<cp de la bodega>"
-dotnet user-secrets set "Skydropx:Origin:State" "<estado de la bodega>"
-dotnet user-secrets set "Skydropx:Origin:City" "<ciudad de la bodega>"
-dotnet user-secrets set "Skydropx:Origin:Neighborhood" "<colonia de la bodega>"
-dotnet user-secrets set "Skydropx:Parcel:LengthCm" "<largo de caja en cm>"
-dotnet user-secrets set "Skydropx:Parcel:WidthCm" "<ancho de caja en cm>"
-dotnet user-secrets set "Skydropx:Parcel:HeightCm" "<alto de caja en cm>"
-dotnet user-secrets set "Skydropx:Parcel:TareWeightKg" "<peso de caja vacía en kg>"
-```
+## API
 
-El portal público de Skydropx documenta `POST /api/v1/quotations`, `GET /api/v1/quotations/{id}` y el token OAuth, pero publica el host de producción en su OpenAPI. Confirma el host Sandbox exacto en la aplicación Sandbox de tu cuenta antes de configurar `Skydropx:BaseUrl`. No compartas aquí el client secret.
+### GraphQL (`/graphql`)
 
-Para probar: actualiza cada producto desde Administración con su peso neto en kg; captura el estado, ciudad, colonia y código postal del destino; y revisa que la caja configurada pueda contener el pedido. La tarifa se calcula en MXN, vence en 24 horas y se persiste en el pedido. El servicio respeta el procesamiento asíncrono de cotizaciones y consulta hasta que Skydropx las completa.
-
-## Ejecución local
-
-Requisitos: SDK de .NET 10 y una instancia de PostgreSQL.
-
-```bash
-dotnet restore back.csproj
-dotnet run --project back.csproj
-```
-
-El front espera el backend en `http://localhost:5097/graphql` cuando se trabaja en local.
-
-## Base de datos
-
-- Tablas mapeadas: `Usuarios`, `Categorias`, `Productos`, `Pedido` y `DetallePedido`.
-- Datos semilla: 3 categorías (Alimentos, Juguetes, Accesorios) y 6 productos de ejemplo.
-- Para crear un administrador hay que cambiar el campo `Rol` del usuario a `Admin` directamente en la base de datos; el registro público siempre crea clientes.
-
-## Endpoints
-
-### GraphQL — `/graphql`
-
-| Tipo | Operación | Acceso |
+|Tipo|Operaciones|Acceso|
 |---|---|---|
-| Query | `categorias`, `productos` | Público |
-| Query | `pedidosPorUsuario`, `pedidoPorId`, `detallePedido` | Autenticado (Admin o dueño del pedido) |
-| Query | `users`, `pedidos`, `estadisticas` | Admin |
-| Mutation | `registrar`, `login`, `loginGoogle` | Público |
-| Mutation | `crearPedido`, `crearPedidoSinPago` | Autenticado (a nombre propio, o Admin) |
-| Mutation | `crearProducto`, `actualizarProducto`, `eliminarProducto` | Admin |
-| Subscription | `onStockActualizado`, `onProductoCambiado`, `onPedidoCreado` | Público |
+|Query|`categorias`, `productos`|Público|
+|Query|`pedidos`, `users`, `estadisticas`|Admin|
+|Query|`pedidosPorUsuario`, `pedidoPorId`, `detallePedido`|Admin o propietario|
+|Query|`misDomicilios`, `terminosAceptados`, `misFacturas`, `misDatosFiscales`|Sesión iniciada|
+|Query|`catalogoUsosCfdi`, `catalogoRegimenesFiscales`|Público|
+|Mutation|`registrar`, `login`, `loginGoogle`|Público|
+|Mutation|`crearProducto`, `actualizarProducto`, `eliminarProducto`|Admin|
+|Mutation|`crearPedido` (tarjeta), `crearPedidoSinPago` (efectivo/transferencia)|Sesión (propietario o Admin)|
+|Mutation|`guardarDomicilio`, `eliminarDomicilio`, `aceptarTerminos`|Sesión|
+|Mutation|`guardarDatosFiscales`, `solicitarFactura`|Sesión|
+|Subscription|`onStockActualizado`, `onProductoCambiado`, `onPedidoCreado`|Público|
+
+El registro **siempre crea clientes**: el parámetro `rol` se ignora. Para crear un administrador se cambia el campo `Rol` a `Admin` directamente en la base de datos.
 
 ### REST
 
-| Método y ruta | Descripción | Acceso |
+|Método y ruta|Acceso|Función|
 |---|---|---|
-| `POST /process_order` | Cobra la tarjeta con Mercado Pago | Autenticado |
-| `POST /api/orders` | Crea la orden de PayPal | Autenticado |
-| `POST /api/orders/{orderId}/capture` | Captura el pago de PayPal y crea el pedido | Autenticado |
-| `POST /api/envios/cotizaciones` | Cotiza el paquete y guarda las tarifas devueltas por Skydropx | Autenticado |
-| `POST /api/imagenes` | Sube una imagen de producto | Admin |
-| `GET /images/{archivo}` | Sirve las imágenes subidas | Público |
-| `POST /webhook/mercadopago` | Recibe notificaciones (por ahora solo las registra en el log) | Público |
+|`POST /process_order`|Sesión|Cobra con Mercado Pago (monto calculado en el servidor)|
+|`POST /api/orders`|Sesión|Crea la orden de PayPal|
+|`POST /api/orders/{orderId}/capture`|Sesión|Captura el pago y crea el pedido|
+|`POST /api/envios/cotizaciones`|Sesión|Cotiza el envío (vigencia 24 h)|
+|`GET /api/codigos-postales/{cp}`|Público|Estado, ciudad y colonias|
+|`POST /api/imagenes`|Admin|Sube una imagen (JPG/PNG/WEBP, máx. 5 MB, valida la firma del archivo)|
+|`GET /api/facturas/{id}/xml` · `/pdf`|Admin o propietario|Descarga de la factura|
+|`POST /webhook/mercadopago`|Público|Recibe notificaciones (solo las registra)|
 
-## Flujo de pago con tarjeta (Mercado Pago)
+## Reglas de negocio importantes
 
-1. El front envía los datos de la tarjeta a `POST /process_order`; el backend calcula el total y cobra.
-2. Con el pago aprobado, el front llama a la mutation `crearPedido` con el `paymentId`.
-3. El backend vuelve a consultar el pago en Mercado Pago (estado, importe, moneda, usuario y productos) y **solo entonces** guarda el pedido y descuenta el stock.
+- **El total lo calcula el servidor** con `PedidoService.CalcularTotalAsync`: suma de productos + tarifa de envío elegida.
+- **Verificación antes de guardar:** con Mercado Pago se consulta el pago (estado `approved`, importe, moneda, usuario y productos del `metadata`); con PayPal se valida y captura la orden. Si algo no coincide, **no se crea el pedido**.
+- **Transacción:** descuento de stock, pedido y detalle se guardan juntos; si falla, se revierte.
+- **Cotización de envío:** debe pertenecer al usuario, no estar vencida y coincidir con el domicilio (CP, estado, ciudad y colonia).
+- **Factura:** solo para pedidos con estado que contenga "Entregado", una por pedido, IVA 16 %, clave SAT `65210301`.
+- **Errores:** las excepciones de validación llegan al cliente como mensajes legibles; cualquier otra devuelve un 500 genérico sin detalles internos.
 
-## CI
+## Pruebas
 
-El workflow `Back CI` (`.github/workflows/deploy.yml`) se ejecuta en cada push y pull request a `main`: restaura dependencias, compila en Release, publica y sube el artefacto `back-publish`. Las pruebas y la verificación de formato están comentadas hasta que exista un proyecto de pruebas.
+```bash
+dotnet test
+```
 
-## Notas
+Las pruebas de integración levantan la API real con base de datos **en memoria** y dobles de Skydropx y del servicio postal; **no usan credenciales ni tokens reales**.
 
-- CORS está abierto a cualquier origen (`AllowReact`).
-- Las subscriptions usan memoria del proceso, por lo que solo funcionan con una instancia del servidor.
-- Las imágenes se guardan en `uploads/images` dentro del directorio de la aplicación.
+## Despliegue
+
+Pensado para **Render** (servicio web .NET) con PostgreSQL. Define las variables de entorno de la tabla de configuración, usa `Jwt__Key` (doble guion bajo) y verifica que el origen del front esté en la política CORS.
